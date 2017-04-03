@@ -1,39 +1,42 @@
 import numpy as np
 import os
 from scipy import special
+import itertools
 
 class actor_critic:
 
-    def __init__(self, dim_theta=6, d=40, num_episodes=4000):
+    def __init__(self, dim_theta=6, d=47):
 
         self.dim_theta = dim_theta
         # initialize theta as random column vector, entries [0,1)
         self.theta = np.random.rand(dim_theta, 1)
 
-        # initialize weight vector for value function approximation
-        self.w = self.init_w()
-
-        self.num_episodes = num_episodes
-
-        # initialize collection of start states
-        self.init_pi0(path_to_dir=r'C:\Users\Jiachen\Documents\Projects\Python\RL\MFG\data_train_reordered')
-        self.num_start_samples = self.mat_pi0.shape[0] # number of rows
+        # initialize weight vector (column) for value function approximation
+        self.w = self.init_w(d)
 
         # number of topics
         self.d = d
-        
-    def init_w(self, dim_w=50):
+
+        # d x d x dim_theta tensor, computed within sample_action and used for
+        # calculating gradient for theta update
+        self.tensor_phi = np.zeros([self.d, self.d, self.dim_theta])        
+
+        # d x d matrix, computed within sample_action and used for sampling action P
+        # and also for calculating gradient for theta update
+        self.mat_alpha = np.zeros([self.d, self.d])
+
+    def init_w(self, d):
         """
+        Input:
+        d - number of topics
+
+        Feature vector is 
+        [1, pi_1,...,pi_d, pi_1*pi_1,...,pi_1*pi_d, pi_2*pi_2,...,pi_2*pi_d, ...... , pi_d*pi_d]
         Initialize weight vector for value function approximation
-        Two choices:
-        1. Choose dimension of this vector depending on the minimum length
-        of \pi^0, because the number of trending topics retrieved might vary per day
-        (e.g. some days have 50, some have 48)
-        2. Ensure that all \pi^0 have the same number of topics, then no need to
-        find minimum
-        Also decide whether to include the null topic
+        Need to decide whether to include the null topic
         """
-        return np.random.rand(dim_w, 1)
+        num_features = int((d+1)*d / 2 + d + 1)
+        return np.random.rand(num_features, 1)
 
 
     def init_pi0(self, path_to_dir='/home/t3500/devdata/mfg/distribution/train_reordered'):
@@ -50,15 +53,16 @@ class actor_critic:
             f = open(path_to_file, 'r')
             list_lines = f.readlines()
             f.close()
-
-            list_pi0.append( list(map(int, list_lines[0].strip().split(','))) )
+            # Ignore the null topic (need to make a decision later)
+            list_pi0.append( list(map(int, list_lines[0].strip().split(',')))[1:1+self.d] )
             
         num_rows = len(list_pi0)
         num_cols = len(list_pi0[0])
 
         self.mat_pi0 = np.zeros([num_rows, num_cols])
         for i in range(len(list_pi0)):
-            self.mat_pi0[i] = list_pi0[i]
+            total = np.sum(list_pi0[i])
+            self.mat_pi0[i] = list(map(lambda x: x/total, list_pi0[i]))
         
 
     def reorder(self, list_rows):
@@ -124,7 +128,9 @@ class actor_critic:
         Returns an entire transition probability matrix
         """
         # Construct all alphas
-        mat_alpha = np.zeros([self.d, self.d])
+        self.mat_alpha = np.zeros([self.d, self.d])
+        # Create tensor phi(i,j,pi) for storing all phi matrices for later use
+        self.tensor_phi = np.zeros([self.d,self.d,self.dim_theta])
         for i in range(self.d):
             # d x (num_features) matrix
             mat_phi = np.zeros([self.d, self.dim_theta])
@@ -134,6 +140,8 @@ class actor_critic:
                 phi = [1, pi[i], pi[j], pi[i]*pi[j], pi[i]**2, pi[j]**2]
                 # insert into mat_phi
                 mat_phi[j] = phi
+            # Store phi matrix into tensor_phi
+            self.tensor_phi[i] = mat_phi
             temp = mat_phi.dot(self.theta) # d x 1
             # element-wise product, to get all entries nonzero
             alpha = temp * temp # d x 1
@@ -142,26 +150,151 @@ class actor_critic:
                 if element <= 0:
                     print("Error! element of alpha is non-positive!")
             # Insert alpha transpose into mat_alpha as the i-th row
-            mat_alpha[i] = np.transpose(alpha)
+            self.mat_alpha[i] = np.transpose(alpha)
         
         # Sample matrix P from Dirichlet
         P = np.zeros([self.d, self.d])
         for i in range(self.d):
             # Get y^i_1, ... y^i_d
-            y = [np.random.gamma(shape=a, scale=1) for a in mat_alpha[i, :]]
+            y = [np.random.gamma(shape=a, scale=1) for a in self.mat_alpha[i, :]]
             total = np.sum(y)
             # Store into i-th row of matrix P
             P[i] = [y_j/total for y_j in y]
 
         return P
-            
 
-    def train(self, gamma=0.99, lr_critic=0.2, lr_actor=0.6):
+
+    def calc_cost(self, P, pi, d):
         """
+        Input:
+        P - transition matrix
+        pi - population distribution as row vector
+        d - should be self.d always, except during testing
+
+        R = \sum_i pi_i \sum_j P_{ij} c_{ij}(pi, P_i)
+        Using c_{ij}(pi, P_i) = P_{ij}(pi_i - pi_j), this becomes
+        R = \sum_i pi_i \sum_j (P_{ij})^2 (pi_i - pi_j)
+        R = < pi, v > where v is a vector whose elements are
+        v_i = \sum_j (P_{ij})^2 (pi_i - pi_j)
+             = [ (P_{i1})^2 , ... , (P_{id})^2 ] dot [(pi_i - pi_1), ..., (pi_i - pi_d)]
+        """
+        # Create vector v
+        v = np.zeros([d, 1])
+        for i in range(d):
+            v1 = P[i, :] * P[i, :] # element-wise multiplication
+            v2 = pi[i] * np.ones(d) - pi
+            v[i] = v1.dot(v2)
+        reward = pi.dot(v)
+
+        return reward
+
+
+    def calc_value(self, pi):
+        """
+        Input:
+        pi - population distribution as a row vector
+
+        Returns V(pi; w) = varphi(pi) dot self.w
+        where varphi(pi) is the feature vector constructed using pi
+        """
+        # generate pairs of (pi_i, pi_j) for all i, for all j >= i
+        list_tuples = list(itertools.combinations_with_replacement(pi, 2))
+        # calculate products
+        list_features = []
+        for idx in range(len(list_tuples)):
+            pair = list_tuples[idx]
+            list_features.append(pair[0] * pair[1])
+        # append first-order feature
+        list_features = list_features + list(pi)
+        # append bias
+        list_features.append(1)
+        # calculate value by inner product
+        value = np.array(list_features).dot(self.w)
+
+        return value
+
+
+    def calc_features(self, pi):
+        """
+        Input:
+        pi - population distribution as a row vector
+
+        Returns varphi(pi) as a row vector
+        """        
+        # generate pairs of (pi_i, pi_j) for all i, for all j >= i
+        list_tuples = list(itertools.combinations_with_replacement(pi, 2))
+        # calculate products
+        list_features = []
+        for idx in range(len(list_tuples)):
+            pair = list_tuples[idx]
+            list_features.append(pair[0] * pair[1])
+        # append first-order feature
+        list_features = list_features + list(pi)
+        # append bias
+        list_features.append(1)
+
+        return np.array(list_features)
+
+
+    def calc_gradient(self, P, pi):
+        """
+        Input:
+        P - transition probability matrix
+        pi - population distribution as a row vector
+
+        Calculates \nabla_{theta} log (F(P, pi, theta))
+        where F is the product of d d-dimensional Dirichlet distributions
+
+        tensor_phi and mat_alpha are global variables computed in sample_action()
+        """
+        # initialize gradient as column vector
+        gradient = np.zeros([self.dim_theta, 1])
+
+        for i in range(self.d):
+
+            # psi(\sum_j alpha^i_j)
+            multiplier = special.digamma( np.sum(self.mat_alpha[i]) )
+
+            for j in range(self.d):
+                # 2 * (phi(i,j,pi) dot theta) phi(i,j,pi)
+                common_term = 2 * (self.tensor_phi[i,j].dot(self.theta)) * np.transpose(self.tensor_phi[i, j:j+1, :])
+                
+                # first term = - \nabla log(\Gamma(\alpha^i_j))
+                # = - psi(alpha^i_j) * 2 * (phi(i,j,pi) dot theta) phi(i,j,pi)
+                first_term = - special.digamma(self.mat_alpha[i,j]) * common_term
+
+                # second term = psi(\sum_j alpha^i_j) * \nabla \alpha^i_j
+                # = psi(\sum_j \alpha^i_j) * 2 * (phi(i,j,pi) dot theta) phi(i,j,pi)
+                second_term = multiplier * common_term
+
+                # third term = \nabla (\alpha^i_j - 1) log(P_{ij})
+                # = 2 * (phi(i,j,pi) dot theta) phi(i,j,pi) * log(P_{ij})
+                third_term = np.log( P[i,j] ) * common_term
+
+                gradient = gradient + first_term + second_term + third_term
+
+        return gradient
+
+
+    def train(self, num_episodes=4000, gamma=0.99, lr_critic=0.2, lr_actor=0.6, consecutive=100):
+        """
+        Input:
+        1. num_episodes - each episode is 16 steps (9am to 12midnight)
+        2. gamma - temporal discount
+        3. lr_critic - learning rate for value function parameter update
+        4. lr_actor - learning rate for policy parameter update
+        5. consecutive - number of consecutive episodes for each reporting of average cost
+
         Main actor-critic training procedure that improves theta and w
         """
-        for episode in range(self.num_episodes):
 
+        # initialize collection of start states
+        self.init_pi0(path_to_dir=r'C:\Users\Jiachen\Documents\Projects\Python\RL\MFG\data_train_reordered')
+        self.num_start_samples = self.mat_pi0.shape[0] # number of rows
+
+        list_cost = []
+        for episode in range(num_episodes):
+            print("Episode", episode)
             # Sample starting pi^0 from mat_pi0
             idx_row = np.random.randint(self.num_start_samples)
             pi = self.mat_pi0[idx_row, :] # row vector
@@ -170,11 +303,45 @@ class actor_critic:
             total_cost = 0
             num_steps = 0
 
-            while num_steps < 16:
+            # Stop after finishing the iteration when num_steps=15, because
+            # at that point pi_next = the predicted distribution at midnight
+            while num_steps < 15:
                 num_steps += 1
+
+                print("pi\n", pi)
 
                 # Sample action
                 P = self.sample_action(pi)
             
-                # Incomplete
-            
+                # Take action, get pi^{n+1} = P^T pi
+                pi_next = np.transpose(P).dot(pi)
+
+                cost = self.calc_cost(P, pi, self.d)
+                
+                # Calculate TD error
+                vec_features_next = self.calc_features(pi_next)
+                vec_features = self.calc_features(pi)
+                # Consider using the terminal condition V^N = 0
+                delta = cost + gamma*(vec_features_next.dot(self.w)) - (vec_features.dot(self.w))
+
+                # Update value function parameter
+                # w <- w + alpha * delta * varphi(pi)
+                # still a column vector
+                length = len(vec_features)
+                self.w = self.w + lr_critic * delta * np.transpose(vec_features.reshape(1,length))
+
+                # theta update
+                gradient = self.calc_gradient(P, pi)
+                self.theta = self.theta - lr_actor * delta * gradient
+
+                discount = discount * gamma
+                pi = pi_next
+                total_cost += cost
+
+            list_cost.append(total_cost)
+
+            if (episode % consecutive == 0):
+                print("Theta\n", self.theta)
+                print("pi\n", pi)
+                print("Average cost during previous %d episodes: " % consecutive, str(sum(list_cost)/consecutive))
+                list_cost = []
