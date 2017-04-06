@@ -139,7 +139,7 @@ class actor_critic:
             # This assumes that dim_theta = 6
             col1 = np.ones([self.d, 1])
             col2 = col1 * pi[i]
-            col3 = np.transpose(pi.reshape(1, self.d))
+            col3 = pi.reshape(self.d, 1)
             col4 = col3 * pi[i]
             col5 = col1 * pi[i]**2
             col6 = col3 * col3 # element-wise product
@@ -273,6 +273,44 @@ class actor_critic:
         return np.array(list_features)
 
 
+    def calc_gradient_vectorized(self, P, pi):
+        """
+        Input:
+        P - transition probability matrix
+        pi - population distribution as a row vector
+
+        Calculates \nabla_{theta} log (F(P, pi, theta))
+        where F is the product of d d-dimensional Dirichlet distributions
+
+        tensor_phi and mat_alpha are global variables computed in sample_action()
+        """
+        # Create B matrix, defined as
+        # B_{ij} = ( -psi(alpha^i_j) + psi(\sum_j alpha^i_j) + log(P_{ij}))
+        #             * 2 * (phi(i,j,pi) dot theta)
+        mat1 = special.digamma(self.mat_alpha)
+        # Each row of mat2 has same value along the row
+        mat2 = np.ones([self.d, self.d]) * np.sum(self.mat_alpha, axis=1, keepdims=True)
+        mat3 = np.log(P)
+        # mat4 is the matrix whose (i,j) entry is 2 <phi(i,j,pi), theta>
+        # recall that phi is a 3d tensor and phi(i,j,pi) is a vector
+        mat4 = 2 * np.tensordot( self.tensor_phi, self.theta.flatten(), axes=1 )
+
+        mat_B = ( -mat1 + mat2 + mat3 ) * mat4
+
+        gradient = np.tensordot( mat_B, self.tensor_phi, axes=2 )
+
+        return gradient.reshape(self.dim_theta, 1)
+
+#    def calc_gradient_basic(self, P, pi):
+#        gradient = np.zeros([self.dim_theta, 1])
+#        for i in range(self.d):
+#            for j in range(self.d):
+#                gradient = gradient - special.digamma(self.mat_alpha[i,j]) * 2 * (self.tensor_phi[i,j].dot(self.theta)) * np.transpose(self.tensor_phi[i, j:j+1, :])
+#
+#            multiplier = special.digamma( np.sum(self.mat_alpha[i]) )
+#            for j in range(self.d):
+#                gradient = gradient + multiplier * 
+    
     def calc_gradient(self, P, pi):
         """
         Input:
@@ -365,7 +403,7 @@ class actor_critic:
                 # w <- w + alpha * delta * varphi(pi)
                 # still a column vector
                 length = len(vec_features)
-                self.w = self.w + lr_critic * delta * np.transpose(vec_features.reshape(1,length))
+                self.w = self.w + lr_critic * delta * vec_features.reshape(length,1)
 
                 # theta update
                 gradient = self.calc_gradient(P, pi)
