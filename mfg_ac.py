@@ -281,35 +281,53 @@ class actor_critic:
 
         Calculates \nabla_{theta} log (F(P, pi, theta))
         where F is the product of d d-dimensional Dirichlet distributions
-
         tensor_phi and mat_alpha are global variables computed in sample_action()
+
+        This version is ~100 times faster than the non-vectorized version
         """
-        # Create B matrix, defined as
+        # Create B matrix, whose (i,j) element is
         # B_{ij} = ( -psi(alpha^i_j) + psi(\sum_j alpha^i_j) + log(P_{ij}))
-        #             * 2 * (phi(i,j,pi) dot theta)
+        #             * 2 * <phi(i,j,pi) , theta>
+
+        # (i,j) element of mat1 is psi(alpha^i_j)
         mat1 = special.digamma(self.mat_alpha)
         # Each row of mat2 has same value along the row
-        mat2 = np.ones([self.d, self.d]) * np.sum(self.mat_alpha, axis=1, keepdims=True)
+        # each element in row i is psi(\sum_j alpha^i_j)
+        mat2 = special.digamma( np.ones([self.d, self.d]) * np.sum(self.mat_alpha, axis=1, keepdims=True) )
+        # (i,j) element of mat3 is ln(P_{ij})
         mat3 = np.log(P)
-        # mat4 is the matrix whose (i,j) entry is 2 <phi(i,j,pi), theta>
+        # mat4 is the matrix whose (i,j) entry is 2<phi(i,j,pi), theta>
         # recall that phi is a 3d tensor and phi(i,j,pi) is a vector
         mat4 = 2 * np.tensordot( self.tensor_phi, self.theta.flatten(), axes=1 )
 
         mat_B = ( -mat1 + mat2 + mat3 ) * mat4
 
+        # Expression is
+        # nabla_theta log(F) = \sum_i \sum_j (-psi(alpha^i_j) + psi(\sum_j alpha^i_j) + ln(P_{ij})) 2 < phi(i,j,pi), theta > phi(i,j,pi)
+        # which is equivalent to
+        # \sum_i \sum_j B_{ij} phi(i,j,pi)
+        # which is a column vector
         gradient = np.tensordot( mat_B, self.tensor_phi, axes=2 )
 
         return gradient.reshape(self.dim_theta, 1)
 
-#    def calc_gradient_basic(self, P, pi):
-#        gradient = np.zeros([self.dim_theta, 1])
-#        for i in range(self.d):
-#            for j in range(self.d):
-#                gradient = gradient - special.digamma(self.mat_alpha[i,j]) * 2 * (self.tensor_phi[i,j].dot(self.theta)) * np.transpose(self.tensor_phi[i, j:j+1, :])
-#
-#            multiplier = special.digamma( np.sum(self.mat_alpha[i]) )
-#            for j in range(self.d):
-#                gradient = gradient + multiplier * 
+    def calc_gradient_basic(self, P, pi):
+        """ 
+        Do not use this version
+        """
+        gradient = np.zeros([self.dim_theta, 1])
+        for i in range(self.d):
+            for j in range(self.d):
+                gradient = gradient - special.digamma(self.mat_alpha[i,j]) * 2 * (self.tensor_phi[i,j].dot(self.theta)) * np.transpose(self.tensor_phi[i, j:j+1, :])
+
+            multiplier = special.digamma( np.sum(self.mat_alpha[i]) )
+            for j in range(self.d):
+                gradient = gradient + multiplier * 2 * (self.tensor_phi[i,j].dot(self.theta)) * np.transpose(self.tensor_phi[i, j:j+1, :])
+
+            for j in range(self.d):
+                gradient = gradient + np.log(P[i,j]) * 2 * (self.tensor_phi[i,j].dot(self.theta)) * np.transpose(self.tensor_phi[i, j:j+1, :])
+
+        return gradient
     
     def calc_gradient(self, P, pi):
         """
@@ -319,8 +337,9 @@ class actor_critic:
 
         Calculates \nabla_{theta} log (F(P, pi, theta))
         where F is the product of d d-dimensional Dirichlet distributions
-
         tensor_phi and mat_alpha are global variables computed in sample_action()
+
+        Do not use this version. Use calc_gradient_vectorized()
         """
         # initialize gradient as column vector
         gradient = np.zeros([self.dim_theta, 1])
@@ -406,7 +425,7 @@ class actor_critic:
                 self.w = self.w + lr_critic * delta * vec_features.reshape(length,1)
 
                 # theta update
-                gradient = self.calc_gradient(P, pi)
+                gradient = self.calc_gradient_vectorized(P, pi)
                 self.theta = self.theta - lr_actor * delta * gradient
 
                 discount = discount * gamma
