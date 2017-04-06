@@ -156,3 +156,30 @@ def test_gradient_small():
     gradient_2 = ac.calc_gradient_vectorized(P, pi)
     print("Gradient computed by vectorized code")
     print(gradient_2)    
+
+    gradient_3 = ac.calc_gradient_basic(P, pi)
+    print("Gradient computed by basic code")
+    print(gradient_3)        
+
+def time_gradient(n):
+    ac.init_pi0(r'C:\Users\Jiachen\Documents\Projects\Python\RL\MFG\data_train_reordered')
+    ac.num_start_samples = ac.mat_pi0.shape[0]
+    idx_row = np.random.randint(ac.num_start_samples)
+    pi = ac.mat_pi0[idx_row, :]
+    P = ac.sample_action(pi)
+    
+    t_start = time.time()
+    for j in range(n):
+        gradient = ac.calc_gradient(P, pi)
+    t_end = time.time()
+    print("Time taken by loop version", t_end-t_start)
+    print("Gradient computed by loop version")
+    print(gradient)
+
+    t_start = time.time()
+    for j in range(n):
+        gradient = ac.calc_gradient_vectorized(P, pi)
+    t_end = time.time()
+    print("Time taken by loop version", t_end-t_start)
+    print("Gradient computed by vectorized version")
+    print(gradient)    
