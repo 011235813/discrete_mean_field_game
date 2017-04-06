@@ -2,6 +2,7 @@ import numpy as np
 import os
 from scipy import special
 import itertools
+import time
 
 class actor_critic:
 
@@ -132,23 +133,30 @@ class actor_critic:
         # Create tensor phi(i,j,pi) for storing all phi matrices for later use
         self.tensor_phi = np.zeros([self.d,self.d,self.dim_theta])
         for i in range(self.d):
-            # d x (num_features) matrix
-            mat_phi = np.zeros([self.d, self.dim_theta])
-            # each row is phi(i, j, pi)
-            for j in range(self.d):
-                # construct feature vector, (num_features) x 1
-                phi = [1, pi[i], pi[j], pi[i]*pi[j], pi[i]**2, pi[j]**2]
-                # insert into mat_phi
-                mat_phi[j] = phi
+            # Construct d x (num_features) matrix by concatenating columns
+            # This is 2x faster than looping through rows j of mat_phi and filling them in
+            # with 1, pi[i], pi[j], pi[i]*pi[j], pi[i]**2, pi[j]**2
+            # This assumes that dim_theta = 6
+            col1 = np.ones([self.d, 1])
+            col2 = col1 * pi[i]
+            col3 = np.transpose(pi.reshape(1, self.d))
+            col4 = col3 * pi[i]
+            col5 = col1 * pi[i]**2
+            col6 = col3 * col3 # element-wise product
+            # Concatenate all columns
+            mat_phi = np.concatenate([col1,col2,col3,col4,col5,col6], axis=1)
+
+            # Previous version
+#            mat_phi = np.zeros([self.d, self.dim_theta])
+#            for j in range(self.d):
+#                phi = [1, pi[i], pi[j], pi[i]*pi[j], pi[i]**2, pi[j]**2]
+#                mat_phi[j] = phi
+
             # Store phi matrix into tensor_phi
             self.tensor_phi[i] = mat_phi
             temp = mat_phi.dot(self.theta) # d x 1
             # element-wise product, to get all entries nonzero
             alpha = temp * temp # d x 1
-            # Insert check for zero
-            for element in alpha:
-                if element <= 0:
-                    print("Error! element of alpha is non-positive!")
             # Insert alpha transpose into mat_alpha as the i-th row
             self.mat_alpha[i] = np.transpose(alpha)
         
@@ -156,10 +164,13 @@ class actor_critic:
         P = np.zeros([self.d, self.d])
         for i in range(self.d):
             # Get y^i_1, ... y^i_d
-            y = [np.random.gamma(shape=a, scale=1) for a in self.mat_alpha[i, :]]
+            # y = [np.random.gamma(shape=a, scale=1) for a in self.mat_alpha[i, :]]
+            # Using the vector as input to shape reduces runtime by 5s
+            y = np.random.gamma(shape=self.mat_alpha[i,:], scale=1)
             total = np.sum(y)
             # Store into i-th row of matrix P
-            P[i] = [y_j/total for y_j in y]
+            # P[i] = [y_j/total for y_j in y]
+            P[i] = y / total
 
         return P
 
@@ -171,21 +182,37 @@ class actor_critic:
         pi - population distribution as row vector
         d - should be self.d always, except during testing
 
+        Using c_{ij}(pi, P_i) = P_{ij}(pi_i - pi_j), reward is
         R = \sum_i pi_i \sum_j P_{ij} c_{ij}(pi, P_i)
-        Using c_{ij}(pi, P_i) = P_{ij}(pi_i - pi_j), this becomes
-        R = \sum_i pi_i \sum_j (P_{ij})^2 (pi_i - pi_j)
-        R = < pi, v > where v is a vector whose elements are
-        v_i = \sum_j (P_{ij})^2 (pi_i - pi_j)
-             = [ (P_{i1})^2 , ... , (P_{id})^2 ] dot [(pi_i - pi_1), ..., (pi_i - pi_d)]
+        = < pi , v >
+        where v = v1 - v2
+        where v1 is vector [ \sum_j P_{1j}^2 pi_1 , ... , \sum_j P_{dj}^2 pi_d ]
+        so v1 = (P element-wise squared)(all ones) element-wise product with pi
+        and v2 is vector [ \sum_j P_{1j}^2 pi_j , ... , \sum_j P_{dj}^2 pi_j ]
+        so v2 = (P element-wise squared)pi
         """
-        # Create vector v
-        v = np.zeros([d, 1])
-        for i in range(d):
-            v1 = P[i, :] * P[i, :] # element-wise multiplication
-            v2 = pi[i] * np.ones(d) - pi
-            v[i] = v1.dot(v2)
-        reward = pi.dot(v)
+        # This vectorized version is 3x faster than the version with one for loop
+        P_squared = P * P # element-wise product
+        # (P_squared product with all_ones) element-wise product with pi as column vector
+        v1 = P_squared.dot(np.ones([d,1])) * pi.reshape(d, 1)
+        # P_squared product with pi as column vector
+        v2 = P_squared.dot(pi.reshape(d, 1))
+        reward = pi.dot( v1 - v2 )
 
+        # previous version
+#        v = np.zeros([d,1])
+#        for i in range(d):
+#            v1 = P[i, :] * P[i, :]
+#            v2 = pi[i] * np.ones(d) - pi
+#            v[i] = v1.dot(v2)
+#        reward = pi.dot(v)
+        
+        # This is the direct version, which is much slower for large d
+#        reward = 0
+#        for i in range(d):
+#            for j in range(d):
+#                reward += pi[i] * P[i,j]**2 * (pi[i] - pi[j])
+        
         return reward
 
 
@@ -197,6 +224,7 @@ class actor_critic:
         Returns V(pi; w) = varphi(pi) dot self.w
         where varphi(pi) is the feature vector constructed using pi
         """
+        
         # generate pairs of (pi_i, pi_j) for all i, for all j >= i
         list_tuples = list(itertools.combinations_with_replacement(pi, 2))
         # calculate products
@@ -210,6 +238,15 @@ class actor_critic:
         list_features.append(1)
         # calculate value by inner product
         value = np.array(list_features).dot(self.w)
+
+        # This pure numpy version is actually much slower
+#        array_tuples = np.vstack(itertools.combinations_with_replacement(pi, 2))
+#        # calculate products, axis is vertical
+#        array_features = np.apply_along_axis(lambda x: x[0]*x[1], axis=1, arr=array_tuples)
+#        # append first-order features along with bias
+#        array_features = np.concatenate([array_features, pi, [1]], axis=0)
+#        # calculate value by inner product
+#        value = array_features.dot(self.w)
 
         return value
 
@@ -308,7 +345,7 @@ class actor_critic:
             while num_steps < 15:
                 num_steps += 1
 
-                print("pi\n", pi)
+                # print("pi\n", pi)
 
                 # Sample action
                 P = self.sample_action(pi)
@@ -345,3 +382,11 @@ class actor_critic:
                 print("pi\n", pi)
                 print("Average cost during previous %d episodes: " % consecutive, str(sum(list_cost)/consecutive))
                 list_cost = []
+
+
+if __name__ == "__main__":
+    ac = actor_critic()
+    t_start = time.time()
+    ac.train(num_episodes=10, consecutive=1)
+    t_end = time.time()
+    print("Time elapsed", t_end - t_start)
