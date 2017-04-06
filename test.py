@@ -135,3 +135,24 @@ def test_gradient():
     gradient = ac.calc_gradient(P, pi)
     print("Gradient vector")
     print(gradient)
+
+    gradient_2 = ac.calc_gradient_vectorized(P, pi)
+    print("Gradient computed by vectorized code")
+    print(gradient_2)
+
+def test_gradient_small():
+    ac.mat_alpha = np.array([[1,2],[3,4]])
+    ac.tensor_phi = np.array([[[1,1],[2,2]],[[3,3],[4,4]]])
+    ac.theta = np.array([[5],[6]])
+    P = np.array([[0.2,0.8],[0.4,0.6]])
+    pi = np.array([0.1,0.9])
+    ac.dim_theta = 2
+    ac.d = 2
+    
+    gradient = ac.calc_gradient(P, pi)
+    print("Gradient vector")
+    print(gradient)
+
+    gradient_2 = ac.calc_gradient_vectorized(P, pi)
+    print("Gradient computed by vectorized code")
+    print(gradient_2)    
