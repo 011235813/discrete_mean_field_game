@@ -3,14 +3,18 @@ import os
 from scipy import special
 import itertools
 import time
+import warnings
+
+warnings.filterwarnings('error')
 
 class actor_critic:
 
-    def __init__(self, dim_theta=6, d=47):
+    def __init__(self, dim_theta=3, d=47):
 
         self.dim_theta = dim_theta
-        # initialize theta as random column vector, entries [0,1)
-        self.theta = np.random.rand(dim_theta, 1)
+        # initialize theta as random column vector, entries [-1,1)
+        # self.theta = np.random.rand(dim_theta, 1) * 2 - 1
+        self.theta = np.array([[1],[-1],[3]]) # good initialization #here
 
         # initialize weight vector (column) for value function approximation
         self.w = self.init_w(d)
@@ -136,15 +140,16 @@ class actor_critic:
             # Construct d x (num_features) matrix by concatenating columns
             # This is 2x faster than looping through rows j of mat_phi and filling them in
             # with 1, pi[i], pi[j], pi[i]*pi[j], pi[i]**2, pi[j]**2
-            # This assumes that dim_theta = 6
+            # This assumes that dim_theta = 6 (now 3)
             col1 = np.ones([self.d, 1])
             col2 = col1 * pi[i]
             col3 = pi.reshape(self.d, 1)
-            col4 = col3 * pi[i]
-            col5 = col1 * pi[i]**2
-            col6 = col3 * col3 # element-wise product
+#            col4 = col3 * pi[i]
+#            col5 = col1 * pi[i]**2
+#            col6 = col3 * col3 # element-wise product
             # Concatenate all columns
-            mat_phi = np.concatenate([col1,col2,col3,col4,col5,col6], axis=1)
+            # mat_phi = np.concatenate([col1,col2,col3,col4,col5,col6], axis=1)
+            mat_phi = np.concatenate([col1,col2,col3], axis=1) #here
 
             # Previous version
 #            mat_phi = np.zeros([self.d, self.dim_theta])
@@ -167,10 +172,16 @@ class actor_critic:
             # y = [np.random.gamma(shape=a, scale=1) for a in self.mat_alpha[i, :]]
             # Using the vector as input to shape reduces runtime by 5s
             y = np.random.gamma(shape=self.mat_alpha[i,:], scale=1)
+            # replace zeros with dummy value
+            y[y == 0] = 1e-20
             total = np.sum(y)
             # Store into i-th row of matrix P
             # P[i] = [y_j/total for y_j in y]
-            P[i] = y / total
+            try:
+                P[i] = y / total
+            except Warning:
+                P[i] = y / total
+                print(y, total)
 
         return P
 
@@ -295,7 +306,11 @@ class actor_critic:
         # each element in row i is psi(\sum_j alpha^i_j)
         mat2 = special.digamma( np.ones([self.d, self.d]) * np.sum(self.mat_alpha, axis=1, keepdims=True) )
         # (i,j) element of mat3 is ln(P_{ij})
-        mat3 = np.log(P)
+        try:
+            mat3 = np.log(P)
+        except Warning:
+            print(P)
+            mat3 = np.log(P)
         # mat4 is the matrix whose (i,j) entry is 2<phi(i,j,pi), theta>
         # recall that phi is a 3d tensor and phi(i,j,pi) is a vector
         mat4 = 2 * np.tensordot( self.tensor_phi, self.theta.flatten(), axes=1 )
@@ -370,7 +385,14 @@ class actor_critic:
         return gradient
 
 
-    def train(self, num_episodes=4000, gamma=0.99, lr_critic=0.2, lr_actor=0.6, consecutive=100):
+    def train_log(self, vector, filename):
+        f = open(filename, 'a')
+        vector.tofile(f, sep=',', format="%f")
+        f.write("\n")
+        f.close()
+    
+
+    def train(self, num_episodes=4000, gamma=1, lr_critic=0.2, lr_actor=0.6, consecutive=100, file_theta='theta.csv', file_pi='pi.csv', file_cost='cost.csv', write_file=0):
         """
         Input:
         1. num_episodes - each episode is 16 steps (9am to 12midnight)
@@ -391,6 +413,8 @@ class actor_critic:
             print("Episode", episode)
             # Sample starting pi^0 from mat_pi0
             idx_row = np.random.randint(self.num_start_samples)
+            # idx_row = 0 # for testing purposes, select the first row of day 1 always #here
+            # print("idx_row", idx_row)
             pi = self.mat_pi0[idx_row, :] # row vector
 
             discount = 1
@@ -399,10 +423,12 @@ class actor_critic:
 
             # Stop after finishing the iteration when num_steps=15, because
             # at that point pi_next = the predicted distribution at midnight
-            while num_steps < 15:
+            while num_steps < 16:
                 num_steps += 1
 
-                # print("pi\n", pi)
+                print("pi\n", pi)
+                print(num_steps)
+                print(self.theta)
 
                 # Sample action
                 P = self.sample_action(pi)
@@ -437,13 +463,18 @@ class actor_critic:
             if (episode % consecutive == 0):
                 print("Theta\n", self.theta)
                 print("pi\n", pi)
-                print("Average cost during previous %d episodes: " % consecutive, str(sum(list_cost)/consecutive))
+                cost_avg = sum(list_cost)/consecutive
+                print("Average cost during previous %d episodes: " % consecutive, str(cost_avg))
                 list_cost = []
+                if write_file:
+                    self.train_log(self.theta, file_theta)
+                    self.train_log(pi, file_pi)
+                    self.train_log(np.array([cost_avg]), file_cost)
 
 
 if __name__ == "__main__":
     ac = actor_critic()
     t_start = time.time()
-    ac.train(num_episodes=10, consecutive=1)
+    ac.train(num_episodes=1, gamma=1, lr_critic=0.1, lr_actor=0.1, consecutive=1, write_file=0)
     t_end = time.time()
     print("Time elapsed", t_end - t_start)
