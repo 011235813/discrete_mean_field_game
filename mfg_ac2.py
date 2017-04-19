@@ -387,7 +387,7 @@ class actor_critic:
         """
 
         # initialize collection of start states
-        self.init_pi0(path_to_dir=r'C:\Users\Jiachen\Documents\Projects\Python\RL\MFG\data_train_reordered')
+        self.init_pi0(path_to_dir=os.getcwd()+'/train_reordered')
         self.num_start_samples = self.mat_pi0.shape[0] # number of rows
 
         list_cost = []
