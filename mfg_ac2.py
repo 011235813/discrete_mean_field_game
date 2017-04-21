@@ -62,8 +62,8 @@ class actor_critic:
             f = open(path_to_file, 'r')
             list_lines = f.readlines()
             f.close()
-            # Ignore the null topic (need to make a decision later)
-            list_pi0.append( list(map(int, list_lines[0].strip().split(',')))[1:1+self.d] )
+            # Need to decide whether or not to include the null topic at index 0
+            list_pi0.append( list(map(int, list_lines[0].strip().split(',')))[0:self.d] )
             
         num_rows = len(list_pi0)
         num_cols = len(list_pi0[0])
@@ -127,6 +127,23 @@ class actor_critic:
                 s += '\n'
                 f.write(s)
             f.close()
+
+
+    def normalize(self, indir='train_reordered', outdir='train_normalized'):
+        """
+        Normalize all rows of data
+        """
+        path_to_dir = os.getcwd() + '/' + indir
+        path_to_outdir = os.getcwd() + '/' + outdir
+        for filename in os.listdir(path_to_dir):
+            path_to_file = path_to_dir + '/' + filename
+            with open(path_to_file, 'r') as f:
+                matrix = np.loadtxt(f, delimiter=',')
+            num_rows = matrix.shape[0]
+            matrix = matrix / np.sum(matrix, axis=1).reshape(num_rows,1)
+            path_to_outfile = path_to_outdir + '/' + filename
+            with open(path_to_outfile, 'wb') as f:
+                np.savetxt(f, matrix, fmt='%.3f')
 
 
     def sample_action(self, pi):
@@ -295,12 +312,14 @@ class actor_critic:
         mat1 = special.digamma(self.mat_alpha)
         # Each row of mat2 has same value along the row
         # each element in row i is psi(\sum_j alpha^i_j)
-        mat2 = special.digamma( np.ones([self.d, self.d]) * np.sum(self.mat_alpha, axis=1, keepdims=True) )
+        mat2 = special.digamma( np.ones([self.d, self.d]) * np.sum(self.mat_alpha, axis=1).reshape(self.d, 1) )
         # (i,j) element of mat3 is ln(P_{ij})
+        P[P==0] = 1e-100
         try:
             mat3 = np.log(P)
         except Warning:
             print(P)
+            print(np.where( P==0 )[0])
             mat3 = np.log(P)
 
         # Expression is
@@ -374,7 +393,7 @@ class actor_critic:
         f.close()
     
 
-    def train(self, num_episodes=4000, gamma=1, lr_critic=0.2, lr_actor=0.6, consecutive=100, file_theta='theta.csv', file_pi='pi.csv', file_cost='cost.csv', write_file=0):
+    def train(self, num_episodes=4000, gamma=1, lr_critic=0.2, lr_actor=0.6, consecutive=100, file_theta='results/theta.csv', file_pi='results/pi.csv', file_cost='results/cost.csv', write_file=0, write_all=0):
         """
         Input:
         1. num_episodes - each episode is 16 steps (9am to 12midnight)
@@ -393,11 +412,15 @@ class actor_critic:
         list_cost = []
         for episode in range(num_episodes):
             print("Episode", episode)
+            if write_all:
+                with open('temp.csv', 'a') as f:
+                    f.write('Episode %d \n\n' % episode)
             # Sample starting pi^0 from mat_pi0
-            # idx_row = np.random.randint(self.num_start_samples)
-            idx_row = 0 # for testing purposes, select the first row of day 1 always #here
+            idx_row = np.random.randint(self.num_start_samples)
+            # idx_row = 0 # for testing purposes, select the first row of day 1 always #here
             # print("idx_row", idx_row)
-            pi = self.mat_pi0[idx_row, :] # row vector
+            pi = self.mat_pi0[idx_row, :] # row vector #here
+            # pi = np.array([0.7, 0.09, 0.01, 0.2]) #here for testing
 
             discount = 1
             total_cost = 0
@@ -405,15 +428,23 @@ class actor_critic:
 
             # Stop after finishing the iteration when num_steps=15, because
             # at that point pi_next = the predicted distribution at midnight
-            while num_steps < 10: #here
+            while num_steps < 15:
                 num_steps += 1
 
-                print("pi\n", pi)
-                print(num_steps)
-                print(self.theta)
+#                print("pi\n", pi)
+#                print(num_steps)
+#                print(self.theta)
 
                 # Sample action
                 P = self.sample_action(pi)
+
+                if write_all:
+                    with open('temp.csv','ab') as f:
+                        np.savetxt(f, np.array(['num_steps = %d' % num_steps]), fmt='%s')
+                        np.savetxt(f, np.array(['distribution']), fmt='%s')
+                        np.savetxt(f, pi.reshape(1, self.d), delimiter=',', fmt='%.6f')
+                        np.savetxt(f, np.array(['Action']), fmt='%s')
+                        np.savetxt(f, P, delimiter=',', fmt='%.3f')
             
                 # Take action, get pi^{n+1} = P^T pi
                 pi_next = np.transpose(P).dot(pi)
@@ -433,7 +464,7 @@ class actor_critic:
                 self.w = self.w + lr_critic * delta * vec_features.reshape(length,1)
 
                 # theta update
-                gradient = self.calc_gradient(P, pi)
+                gradient = self.calc_gradient_vectorized(P, pi)
                 self.theta = self.theta - lr_actor * delta * gradient
 
                 discount = discount * gamma
@@ -455,8 +486,8 @@ class actor_critic:
 
 
 if __name__ == "__main__":
-    ac = actor_critic(theta=10, shift=0.5, alpha_scale=100, d=47)
+    ac = actor_critic(theta=10, shift=0, alpha_scale=100, d=34)
     t_start = time.time()
-    ac.train(num_episodes=1, gamma=1, lr_critic=0.1, lr_actor=0.05, consecutive=1, write_file=0)
+    ac.train(num_episodes=4000, gamma=1, lr_critic=0.1, lr_actor=0.05, consecutive=100, write_file=1, write_all=0)
     t_end = time.time()
     print("Time elapsed", t_end - t_start)

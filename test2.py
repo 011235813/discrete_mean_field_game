@@ -1,6 +1,7 @@
 import numpy as np
 import mfg_ac2
 import time
+import os
 
 ac = mfg_ac2.actor_critic(theta=10, shift=0.4, d=4)
 
@@ -109,6 +110,9 @@ def test_gradient_first():
 
     gradient2 = ac.calc_gradient(P, pi)
     print("gradient", gradient2)
+
+    gradient3 = ac.calc_gradient_vectorized(P, pi)
+    print("gradient", gradient3)
     
 
 def test_gradient():
@@ -167,7 +171,7 @@ def test_gradient_small():
     print(gradient_3)        
 
 def time_gradient(n):
-    ac.init_pi0(r'C:\Users\Jiachen\Documents\Projects\Python\RL\MFG\data_train_reordered')
+    ac.init_pi0(os.getcwd() + '/train_reordered')
     ac.num_start_samples = ac.mat_pi0.shape[0]
     idx_row = np.random.randint(ac.num_start_samples)
     pi = ac.mat_pi0[idx_row, :]
