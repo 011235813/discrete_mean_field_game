@@ -516,22 +516,24 @@ class actor_critic:
         return 0.5 * (entropy(P,M) + entropy(Q,M))
 
 
-    def generate_trajectory(self, pi0):
+    def generate_trajectory(self, pi0, total_steps):
         """
         Argument:
         pi0 - initial population distribution
 
         Return:
-        Matrix, each row is the distribution at a discrete time step
+        Matrix, each row is the distribution at a discrete time step,
+        from pi^1 to pi^N
+        pi^0 is not included
         """
 
         num_steps = 0
         pi = pi0
         # Initialize matrix to store trajectory
-        # 15 rows by d columns
-        mat_trajectory = np.zeros([15, self.d])
+        # total_steps rows by d columns
+        mat_trajectory = np.zeros([total_steps, self.d])
 
-        while num_steps < 15:
+        while num_steps < total_steps:
             P = self.sample_action(pi)
             pi_next = np.transpose(P).dot(pi)
             mat_trajectory[num_steps] = pi_next
@@ -541,7 +543,7 @@ class actor_critic:
         return mat_trajectory
 
 
-    def evaluate(self, theta, indir='test_normalized'):
+    def evaluate(self, theta, episode_length, indir='test_normalized'):
         """
         Main evaluation function
 
@@ -552,34 +554,57 @@ class actor_critic:
         """
         # Fix policy by setting parameter
         self.theta = theta
-
-
+        
         path_to_dir = os.getcwd() + '/' + indir
-
+        num_test_trajectories = len(os.listdir(path_to_dir))
+        array_l1_final = np.zeros(num_test_trajectories)
+        array_l1_mean = np.zeros(num_test_trajectories)
+        array_JSD_final = np.zeros(num_test_trajectories)
+        array_JSD_mean = np.zeros(num_test_trajectories)
+        
+        idx = 0
         # For each file in test_normalized
         for filename in os.listdir(path_to_dir):
             path_to_file = path_to_dir + '/' + filename
 
-            with open(path_to_dir, 'r') as f:
+            with open(path_to_file, 'r') as f:
                 mat_empirical = np.loadtxt(f, delimiter=' ')
 
             # Read initial distribution pi0
             pi0 = mat_empirical[0]
 
             # Generate entire trajectory using policy
-            mat_trajectory = self.generate_trajectory(pi0)
+            mat_trajectory = self.generate_trajectory(pi0, episode_length)
 
-            # L1 norm of difference between generated and empirical final distribution
-            l1_final = norm(mat_trajectory[-1] - mat_empirical[-1])
+            # L1 norm of difference between generated and empirical final distribution pi^N
+            l1_final = norm(mat_trajectory[-1] - mat_empirical[-1], ord=1)
+            array_l1_final[idx] = l1_final
 
             # L1 norm of difference between generated distribution and empirical distribution, averaged across all time steps
-            # INCOMPLETE
+            diff = mat_empirical[1:,] - mat_trajectory
+            l1_mean = np.mean(np.apply_along_axis(lambda row: norm(row, ord=1), 1, diff))
+            array_l1_mean[idx] = l1_mean
 
             # JS divergence between final distributions
+            JSD_final = self.JSD(mat_trajectory[-1], mat_empirical[-1])
+            array_JSD_final[idx] = JSD_final
 
             # Average JS divergence across all time steps
+            JSD_mean = 0
+            for idx2 in range(episode_length):
+                # mat_empirical[0] is pi0,so skip it
+                JSD_mean += self.JSD(mat_empirical[idx2+1], mat_trajectory[idx2])
+            JSD_mean = JSD_mean / episode_length
+            array_JSD_mean[idx] = JSD_mean
+            
+            idx += 1
 
-        pass
+        print("mat_trajectory\n", mat_trajectory)
+        print("array_l1_final\n", array_l1_final)
+        print("array_l1_mean\n", array_l1_mean)
+        print("array_JSD_final\n", array_JSD_final)
+        print("array_JSD_mean\n", array_JSD_mean)
+
 
 if __name__ == "__main__":
     ac = actor_critic(theta=10, shift=0, alpha_scale=100, d=34)
