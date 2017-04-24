@@ -1,8 +1,12 @@
 # This version uses the softplus function for alpha^i_j
 
 import numpy as np
-import os
+from numpy.linalg import norm
+
 from scipy import special
+from scipy.stats import entropy
+
+import os
 import itertools
 import time
 import warnings
@@ -100,10 +104,13 @@ class actor_critic:
         return list_rows
 
     
-    def reorder_files(self, path_to_dir='/home/t3500/devdata/mfg/distribution/train', output_dir='/home/t3500/devdata/mfg/distribution/train_reordered'):
+    def reorder_files(self, indir='train', outdir='train_reordered'):
         """
         Process all files in given directory, creates new files
         """
+        path_to_dir = os.getcwd() + '/' + indir
+        path_to_outdir = os.getcwd() + '/' + outdir
+
         for filename in os.listdir(path_to_dir):
             path_to_file = path_to_dir + '/' + filename
             f = open(path_to_file, 'r')
@@ -121,7 +128,7 @@ class actor_critic:
             # write to new file
             index_dot = filename.index('.')
             filename_new = filename[:index_dot] + '_reordered' + filename[index_dot:]
-            f = open(output_dir + '/' + filename_new, 'w')
+            f = open(path_to_outdir + '/' + filename_new, 'w')
             for row in list_rows:
                 s = ','.join(map(str, row))
                 s += '\n'
@@ -143,7 +150,7 @@ class actor_critic:
             matrix = matrix / np.sum(matrix, axis=1).reshape(num_rows,1)
             path_to_outfile = path_to_outdir + '/' + filename
             with open(path_to_outfile, 'wb') as f:
-                np.savetxt(f, matrix, fmt='%.3f')
+                np.savetxt(f, matrix, fmt='%.3e')
 
 
     def sample_action(self, pi):
@@ -484,6 +491,95 @@ class actor_critic:
                     self.train_log(pi, file_pi)
                     self.train_log(np.array([cost_avg]), file_cost)
 
+
+# ---------------- End training code ---------------- #
+
+# ---------------- Evaluation code ------------------ #
+
+    def JSD(self, P, Q):
+        """
+        Arguments:
+        P,Q - discrete probability distribution
+        
+        Return:
+        Jensen-Shannon divergence
+        """
+
+        # Replace all zeros by 1e-100
+        P[P==0] = 1e-100
+        Q[Q==0] = 1e-100
+
+        P_normed = P / norm(P, ord=1)
+        Q_normed = Q / norm(Q, ord=1)
+        M = 0.5 * (P + Q)
+
+        return 0.5 * (entropy(P,M) + entropy(Q,M))
+
+
+    def generate_trajectory(self, pi0):
+        """
+        Argument:
+        pi0 - initial population distribution
+
+        Return:
+        Matrix, each row is the distribution at a discrete time step
+        """
+
+        num_steps = 0
+        pi = pi0
+        # Initialize matrix to store trajectory
+        # 15 rows by d columns
+        mat_trajectory = np.zeros([15, self.d])
+
+        while num_steps < 15:
+            P = self.sample_action(pi)
+            pi_next = np.transpose(P).dot(pi)
+            mat_trajectory[num_steps] = pi_next
+            pi = pi_next
+            num_steps += 1
+
+        return mat_trajectory
+
+
+    def evaluate(self, theta, indir='test_normalized'):
+        """
+        Main evaluation function
+
+        Argument:
+        theta - value to use for the fixed policy
+        indir - directory containing the test dataset
+
+        """
+        # Fix policy by setting parameter
+        self.theta = theta
+
+
+        path_to_dir = os.getcwd() + '/' + indir
+
+        # For each file in test_normalized
+        for filename in os.listdir(path_to_dir):
+            path_to_file = path_to_dir + '/' + filename
+
+            with open(path_to_dir, 'r') as f:
+                mat_empirical = np.loadtxt(f, delimiter=' ')
+
+            # Read initial distribution pi0
+            pi0 = mat_empirical[0]
+
+            # Generate entire trajectory using policy
+            mat_trajectory = self.generate_trajectory(pi0)
+
+            # L1 norm of difference between generated and empirical final distribution
+            l1_final = norm(mat_trajectory[-1] - mat_empirical[-1])
+
+            # L1 norm of difference between generated distribution and empirical distribution, averaged across all time steps
+            # INCOMPLETE
+
+            # JS divergence between final distributions
+
+            # Average JS divergence across all time steps
+
+        pass
 
 if __name__ == "__main__":
     ac = actor_critic(theta=10, shift=0, alpha_scale=100, d=34)
