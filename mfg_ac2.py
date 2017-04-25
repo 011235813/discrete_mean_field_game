@@ -543,7 +543,7 @@ class actor_critic:
         return mat_trajectory
 
 
-    def evaluate(self, theta, episode_length, indir='test_normalized'):
+    def evaluate(self, theta, d, episode_length, indir='test_normalized'):
         """
         Main evaluation function
 
@@ -554,6 +554,7 @@ class actor_critic:
         """
         # Fix policy by setting parameter
         self.theta = theta
+        self.d = d
         
         path_to_dir = os.getcwd() + '/' + indir
         num_test_trajectories = len(os.listdir(path_to_dir))
@@ -569,6 +570,7 @@ class actor_critic:
 
             with open(path_to_file, 'r') as f:
                 mat_empirical = np.loadtxt(f, delimiter=' ')
+                mat_empirical = mat_empirical[:, 0:self.d]
 
             # Read initial distribution pi0
             pi0 = mat_empirical[0]
@@ -598,6 +600,27 @@ class actor_critic:
             array_JSD_mean[idx] = JSD_mean
             
             idx += 1
+
+        # Mean over all test files
+        mean_l1_final = np.mean(array_l1_final)
+        mean_l1_mean = np.mean(array_l1_mean)
+        mean_JSD_final = np.mean(array_JSD_final)
+        mean_JSD_mean = np.mean(array_JSD_mean)
+
+        with open('train_eval.csv','ab') as f:
+            np.savetxt(f, np.array(['theta = %f' % self.theta]), fmt='%s')
+            np.savetxt(f, np.array(['array_l1_final']), fmt='%s')
+            np.savetxt(f, np.array([mean_l1_final]), fmt='%.3e')
+            np.savetxt(f, array_l1_final.reshape(1, num_test_trajectories), delimiter=',', fmt='%.3e')
+            np.savetxt(f, np.array(['array_l1_mean']), fmt='%s')
+            np.savetxt(f, np.array([mean_l1_mean]), fmt='%.3e')
+            np.savetxt(f, array_l1_mean.reshape(1, num_test_trajectories), delimiter=',', fmt='%.3e')
+            np.savetxt(f, np.array(['array_JSD_final']), fmt='%s')
+            np.savetxt(f, np.array([mean_JSD_final]), fmt='%.3e')
+            np.savetxt(f, array_JSD_final.reshape(1, num_test_trajectories), delimiter=',', fmt='%.3e')
+            np.savetxt(f, np.array(['array_JSD_mean']), fmt='%s')
+            np.savetxt(f, np.array([mean_JSD_mean]), fmt='%.3e')
+            np.savetxt(f, array_JSD_mean.reshape(1, num_test_trajectories), delimiter=',', fmt='%.3e')
 
         print("mat_trajectory\n", mat_trajectory)
         print("array_l1_final\n", array_l1_final)
