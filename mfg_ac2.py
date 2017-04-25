@@ -38,45 +38,9 @@ class actor_critic:
 
         self.mat_alpha_deriv = np.zeros([self.d, self.d])
 
-    def init_w(self, d):
-        """
-        Input:
-        d - number of topics
 
-        Feature vector is 
-        [1, pi_1,...,pi_d, pi_1*pi_1,...,pi_1*pi_d, pi_2*pi_2,...,pi_2*pi_d, ...... , pi_d*pi_d]
-        Initialize weight vector for value function approximation
-        Need to decide whether to include the null topic
-        """
-        num_features = int((d+1)*d / 2 + d + 1)
-        return np.random.rand(num_features, 1)
+# ------------------- File processing functions ------------------ #
 
-
-    def init_pi0(self, path_to_dir='/home/t3500/devdata/mfg/distribution/train_reordered'):
-        """
-        Generates the collection of initial population distributions.
-        This collection will be sampled to get the start state for each training episode
-        Assumes that each file in director has rows of the format:
-        pi^0_1, ... , pi^0_d
-        where d is a fixed constant across all files
-        """
-        list_pi0 = []
-        for filename in os.listdir(path_to_dir):
-            path_to_file = path_to_dir + '/' + filename
-            f = open(path_to_file, 'r')
-            list_lines = f.readlines()
-            f.close()
-            # Need to decide whether or not to include the null topic at index 0
-            list_pi0.append( list(map(int, list_lines[0].strip().split(',')))[0:self.d] )
-            
-        num_rows = len(list_pi0)
-        num_cols = len(list_pi0[0])
-
-        self.mat_pi0 = np.zeros([num_rows, num_cols])
-        for i in range(len(list_pi0)):
-            total = np.sum(list_pi0[i])
-            self.mat_pi0[i] = list(map(lambda x: x/total, list_pi0[i]))
-        
 
     def reorder(self, list_rows):
         """
@@ -152,6 +116,71 @@ class actor_critic:
             with open(path_to_outfile, 'wb') as f:
                 np.savetxt(f, matrix, fmt='%.3e')
 
+
+    def get_max_nonzero(self, indir):
+        """
+        Scan through the training files in indir and find the maximum
+        number of nonzero entries in the initial distribution
+        """
+        max_nnz = 0
+        file_with_max = ''
+        path_to_dir = os.getcwd() + '/' + indir
+        for filename in os.listdir(path_to_dir):
+            path_to_file = path_to_dir + '/' + filename
+            with open(path_to_file, 'r') as f:
+                matrix = np.loadtxt(f, delimiter=',')
+            nnz = np.count_nonzero(matrix[0])
+            if ( nnz > max_nnz ):
+                max_nnz = nnz
+                file_with_max = filename
+        print("Max nnz:", max_nnz)
+        print("File with max nnz:", file_with_max)
+
+
+# ------------------- End file processing functions ------------------ #
+
+
+# ------------------- Actor-critic training functions ---------------- #
+
+    def init_w(self, d):
+        """
+        Input:
+        d - number of topics
+
+        Feature vector is 
+        [1, pi_1,...,pi_d, pi_1*pi_1,...,pi_1*pi_d, pi_2*pi_2,...,pi_2*pi_d, ...... , pi_d*pi_d]
+        Initialize weight vector for value function approximation
+        Need to decide whether to include the null topic
+        """
+        num_features = int((d+1)*d / 2 + d + 1)
+        return np.random.rand(num_features, 1)
+
+
+    def init_pi0(self, path_to_dir='/home/t3500/devdata/mfg/distribution/train_reordered'):
+        """
+        Generates the collection of initial population distributions.
+        This collection will be sampled to get the start state for each training episode
+        Assumes that each file in directory has rows of the format:
+        pi^0_1, ... , pi^0_d
+        where d is a fixed constant across all files
+        """
+        list_pi0 = []
+        for filename in os.listdir(path_to_dir):
+            path_to_file = path_to_dir + '/' + filename
+            f = open(path_to_file, 'r')
+            list_lines = f.readlines()
+            f.close()
+            # Need to decide whether or not to include the null topic at index 0
+            list_pi0.append( list(map(int, list_lines[0].strip().split(',')))[0:self.d] )
+            
+        num_rows = len(list_pi0)
+        num_cols = len(list_pi0[0])
+
+        self.mat_pi0 = np.zeros([num_rows, num_cols])
+        for i in range(len(list_pi0)):
+            total = np.sum(list_pi0[i])
+            self.mat_pi0[i] = list(map(lambda x: x/total, list_pi0[i]))
+        
 
     def sample_action(self, pi):
         """
