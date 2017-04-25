@@ -156,7 +156,7 @@ class actor_critic:
         return np.random.rand(num_features, 1)
 
 
-    def init_pi0(self, path_to_dir='/home/t3500/devdata/mfg/distribution/train_reordered'):
+    def init_pi0(self, path_to_dir, verbose=0):
         """
         Generates the collection of initial population distributions.
         This collection will be sampled to get the start state for each training episode
@@ -171,15 +171,18 @@ class actor_critic:
             list_lines = f.readlines()
             f.close()
             # Need to decide whether or not to include the null topic at index 0
-            list_pi0.append( list(map(int, list_lines[0].strip().split(',')))[0:self.d] )
+            list_pi0.append( list(map(float, list_lines[0].strip().split(' ')))[0:self.d] )
+            if verbose:
+                print(filename)
             
         num_rows = len(list_pi0)
         num_cols = len(list_pi0[0])
 
         self.mat_pi0 = np.zeros([num_rows, num_cols])
         for i in range(len(list_pi0)):
-            total = np.sum(list_pi0[i])
-            self.mat_pi0[i] = list(map(lambda x: x/total, list_pi0[i]))
+            # total = np.sum(list_pi0[i])
+            # self.mat_pi0[i] = list(map(lambda x: x/total, list_pi0[i]))
+            self.mat_pi0[i] = list_pi0[i]
         
 
     def sample_action(self, pi):
@@ -442,7 +445,7 @@ class actor_critic:
         """
 
         # initialize collection of start states
-        self.init_pi0(path_to_dir=os.getcwd()+'/train_reordered')
+        self.init_pi0(path_to_dir=os.getcwd()+'/train_normalized')
         self.num_start_samples = self.mat_pi0.shape[0] # number of rows
 
         list_cost = []
