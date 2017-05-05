@@ -4,6 +4,8 @@ import statsmodels.api as sm
 from statsmodels.tsa.api import VAR, DynamicVAR
 import matplotlib.pylab as plt
 import os
+from numpy.linalg import norm
+from scipy.stats import entropy
 
 from statsmodels.tsa.base.datetools import dates_from_str
 from statsmodels.tsa.stattools import adfuller
@@ -41,7 +43,9 @@ class var():
         print("Reading train files")
         list_df = []
         idx = 0
-        for filename in os.listdir(train):
+        # for filename in os.listdir(train):
+        for num_day in range(1, 27):
+            filename = "trend_distribution_day%d_reordered.csv" % num_day
             print(filename)
             path_to_file = train + '/' + filename
             df = pd.read_csv(path_to_file, sep=' ', header=None, names=range(d), usecols=range(d), dtype=np.float64)
@@ -105,9 +109,94 @@ class var():
 
     def plot(self, topic, lag):
         
-        plt.plot(self.df_train.index[lag:], self.df_train[topic][lag:], color='r', label='data')
+        #plt.plot(self.df_train.index[lag:], self.df_train[topic][lag:], color='r', label='data')
+        plt.plot(self.df_train.index, self.df_train[topic], color='r', label='data')        
         plt.plot(self.df_train.index[lag:], self.results.fittedvalues[topic], color='b', label='time series')
         plt.legend(loc='best')
         plt.title('Topic %d data and fitted time series' % topic)
         plt.show()
+        
+
+    def JSD(self, P, Q):
+        """
+        Arguments:
+        P,Q - discrete probability distribution
+        
+        Return:
+        Jensen-Shannon divergence
+        """
+
+        # Replace all invalid values by 1e-100
+        P[P<=0] = 1e-100
+        Q[Q<=0] = 1e-100
+
+        P_normed = P / norm(P, ord=1)
+        Q_normed = Q / norm(Q, ord=1)
+        M = 0.5 * (P + Q)
+
+        return 0.5 * (entropy(P,M) + entropy(Q,M))
+
+
+    def evaluate_train(self):
+        lag = self.results.k_ar
+
+        # Total number of distributions in fitted time series
+        len_fitted = len(self.results.fittedvalues.index)
+        # Total number of distributions across all days and all hours in training set
+        len_empirical = len(self.df_train.index)
+
+        ### Part 1: evaluate final distributions only ###
+
+        # index of fittedvalues that corresponds to the final distribution on day1
+        # e.g. if lag is 15, then the index 0 of fittedvalues is the final distribution of day1
+        idx_fitted = 15 - lag
+        # start at final distribution of day1
+        idx_empirical = 15
+
+        # num_trajectories = number of days
+        num_trajectories = int(len_empirical/16)
+        array_l1_final = np.zeros(num_trajectories)
+        array_JSD_final = np.zeros(num_trajectories)
+        
+        # Go through all final distributions
+        idx =  0
+        while idx_fitted < len_fitted and idx_empirical < len_empirical:
+            l1_final = norm( self.df_train.ix[idx_empirical] - self.results.fittedvalues.ix[idx_fitted], ord=1)
+            array_l1_final[idx] = l1_final
+
+            JSD_final = self.JSD( self.df_train.ix[idx_empirical], self.results.fittedvalues.ix[idx_fitted] )
+            array_JSD_final[idx] = JSD_final
+
+            idx_fitted += 16
+            idx_empirical += 16
+            idx += 1
+
+        ### Part 2: evaluate distributions at all hours ###
+
+        array_l1_mean = np.zeros(len_fitted)
+        array_JSD_mean = np.zeros(len_fitted)
+        idx_fitted = 0 # start at very beginning
+        idx_empirical = idx_fitted + lag # start at the hour that corresponds to idx_fitted=0
+
+        while idx_fitted < len_fitted:
+            l1 = norm( self.df_train.ix[idx_fitted+lag] - self.results.fittedvalues.ix[idx_fitted], ord=1)
+            array_l1_mean[idx_fitted] = l1
+
+            JSD_final = self.JSD( self.df_train.ix[idx_fitted+lag], self.results.fittedvalues.ix[idx_fitted] )
+            array_JSD_mean[idx_fitted] = JSD_final            
+            idx_fitted += 1
+
+        # Mean over all days of the difference between final distributions
+        mean_l1_final = np.mean(array_l1_final)
+        mean_JSD_final = np.mean(array_JSD_final)
+        print(array_l1_final)
+        print(array_JSD_final)
+        print(mean_l1_final)
+        print(mean_JSD_final)
+
+        # Mean over all hours of the difference between distributions at all hours
+        mean_l1 = np.mean(array_l1_mean)
+        mean_JSD = np.mean(array_JSD_mean)
+        print(mean_l1)
+        print(mean_JSD)
         
