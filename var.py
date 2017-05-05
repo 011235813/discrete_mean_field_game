@@ -200,3 +200,23 @@ class var():
         print(mean_l1)
         print(mean_JSD)
         
+
+    def forecast(self, num_prior, steps, topic=0):
+        lag = self.results.k_ar
+        num_previous = len(self.df_train.index)
+        
+        future = self.results.forecast(self.df_train.values[-num_prior:], steps)
+
+        df = pd.DataFrame(future)
+        df.index = np.arange(num_previous, num_previous+steps)
+        df.index = pd.to_datetime(df.index, unit="D")
+
+        self.future = df
+
+        plt.plot(self.df_train.index, self.df_train[topic], color='r', label='data')        
+        plt.plot(self.df_train.index[lag:], self.results.fittedvalues[topic], color='b', label='time series')
+        plt.plot(self.future.index, self.future[topic], color='g', label='future')
+        plt.legend(loc='best')
+        plt.title('Topic %d data and fitted time series' % topic)
+        plt.show()
+
