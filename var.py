@@ -6,6 +6,7 @@ import matplotlib.pylab as plt
 import os
 
 from statsmodels.tsa.base.datetools import dates_from_str
+from statsmodels.tsa.stattools import adfuller
 
 class var():
 
@@ -49,6 +50,7 @@ class var():
             idx += 16
             
         df_train = pd.concat(list_df)
+        df_train.index = pd.to_datetime(df_train.index, unit="D")
 
         print("Reading test files")
         list_df = []
@@ -64,10 +66,48 @@ class var():
             df_test = pd.concat(list_df)
         else:
             df_test = pd.DataFrame()
-            
+
+        df_test.index = pd.to_datetime(df_test.index, unit="D")
+
         return df_train, df_test
 
-    def plot(self):
-        # self.results.plot()
-        # self.data.plot()
+
+    def check_stationarity(self, topic):
+        ts = self.df_train[topic]
+
+        #Determing rolling statistics
+        rolmean = pd.rolling_mean(ts, window=12)
+        rolstd = pd.rolling_std(ts, window=12)
+    
+        #Plot rolling statistics:
+        orig = plt.plot(ts, color='blue',label='Original')
+        mean = plt.plot(rolmean, color='red', label='Rolling Mean')
+        std = plt.plot(rolstd, color='black', label = 'Rolling Std')
+        plt.legend(loc='best')
+        plt.title('Rolling Mean & Standard Deviation')
+        plt.show(block=False)
+        
+        #Perform Dickey-Fuller test:
+        print('Results of Dickey-Fuller Test:')
+        dftest = adfuller(ts, autolag='AIC')
+        dfoutput = pd.Series(dftest[0:4], index=['Test Statistic','p-value','#Lags Used','Number of Observations Used'])
+        for key,value in dftest[4].items():
+            dfoutput['Critical Value (%s)'%key] = value
+        print(dfoutput)
+
+        
+    def train(self, max_lag=15):
+
+        self.model = VAR(self.df_train)
+
+        self.results = self.model.fit(maxlags=max_lag, ic='aic')
+
+
+    def plot(self, topic, lag):
+        
+        plt.plot(self.df_train.index[lag:], self.df_train[topic][lag:], color='r', label='data')
+        plt.plot(self.df_train.index[lag:], self.results.fittedvalues[topic], color='b', label='time series')
+        plt.legend(loc='best')
+        plt.title('Topic %d data and fitted time series' % topic)
+        plt.show()
         
