@@ -6,10 +6,11 @@ from numpy.linalg import norm
 from scipy import special
 from scipy.stats import entropy
 
-import pandas as pd
-import matplotlib.pylab as plt
-
-import var
+import platform
+if (platform.system() == "Windows"):
+    import pandas as pd
+    import matplotlib.pylab as plt
+    import var
 
 import os
 import itertools
