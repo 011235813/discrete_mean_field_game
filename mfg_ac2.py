@@ -44,7 +44,8 @@ class actor_critic:
 
         self.mat_alpha_deriv = np.zeros([self.d, self.d])
 
-        self.var = var.var(d=d)
+        if (platform.system() == "Windows"):
+            self.var = var.var(d=d)
 
 # ------------------- File processing functions ------------------ #
 
