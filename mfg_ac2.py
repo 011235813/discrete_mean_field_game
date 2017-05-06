@@ -20,7 +20,7 @@ warnings.filterwarnings('error')
 
 class actor_critic:
 
-    def __init__(self, theta=5, shift=0, alpha_scale=100, d=47):
+    def __init__(self, theta=10, shift=0, alpha_scale=100, d=21):
 
         # initialize theta
         self.theta = theta
@@ -171,7 +171,10 @@ class actor_critic:
         where d is a fixed constant across all files
         """
         list_pi0 = []
-        for filename in os.listdir(path_to_dir):
+        # for filename in os.listdir(path_to_dir):
+        num_files = len(os.listdir(path_to_dir))
+        for num_day in range(1, 1+num_files):
+            filename = "trend_distribution_day%d_reordered.csv" % num_day
             path_to_file = path_to_dir + '/' + filename
             f = open(path_to_file, 'r')
             list_lines = f.readlines()
@@ -433,12 +436,12 @@ class actor_critic:
 
     def train_log(self, vector, filename):
         f = open(filename, 'a')
-        vector.tofile(f, sep=',', format="%f")
+        vector.tofile(f, sep=',', format="%.3e")
         f.write("\n")
         f.close()
     
 
-    def train(self, num_episodes=4000, gamma=1, lr_critic=0.2, lr_actor=0.6, consecutive=100, file_theta='results/theta.csv', file_pi='results/pi.csv', file_cost='results/cost.csv', write_file=0, write_all=0):
+    def train(self, num_episodes=4000, gamma=1, lr_critic=0.1, lr_actor=0.001, consecutive=100, file_theta='results/theta.csv', file_pi='results/pi.csv', file_cost='results/cost.csv', write_file=0, write_all=0):
         """
         Input:
         1. num_episodes - each episode is 16 steps (9am to 12midnight)
@@ -456,12 +459,12 @@ class actor_critic:
 
         list_cost = []
         for episode in range(num_episodes):
-            print("Episode", episode)
+            # print("Episode", episode)
             if write_all:
                 with open('temp.csv', 'a') as f:
                     f.write('Episode %d \n\n' % episode)
             # Sample starting pi^0 from mat_pi0
-            idx_row = np.random.randint(self.num_start_samples)
+            idx_row = np.random.randint(self.num_start_samples) #here
             # idx_row = 0 # for testing purposes, select the first row of day 1 always #here
             # print("idx_row", idx_row)
             pi = self.mat_pi0[idx_row, :] # row vector #here
@@ -723,8 +726,8 @@ class actor_critic:
         
 
 if __name__ == "__main__":
-    ac = actor_critic(theta=10, shift=0, alpha_scale=100, d=34)
+    ac = actor_critic(theta=10, shift=0.5, alpha_scale=100, d=21)
     t_start = time.time()
-    ac.train(num_episodes=4000, gamma=1, lr_critic=0.1, lr_actor=0.05, consecutive=100, write_file=1, write_all=0)
+    ac.train(num_episodes=1000, gamma=1, lr_critic=0.1, lr_actor=0.001, consecutive=100, write_file=1, write_all=0)
     t_end = time.time()
     print("Time elapsed", t_end - t_start)
