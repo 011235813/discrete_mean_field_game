@@ -575,7 +575,7 @@ class actor_critic:
         return mat_trajectory
 
 
-    def evaluate(self, theta, d, episode_length, indir='test_normalized'):
+    def evaluate(self, theta, d, episode_length, indir='test_normalized', outfile='test_eval.csv'):
         """
         Main evaluation function
 
@@ -639,7 +639,7 @@ class actor_critic:
         mean_JSD_final = np.mean(array_JSD_final)
         mean_JSD_mean = np.mean(array_JSD_mean)
 
-        with open('train_eval.csv','ab') as f:
+        with open(outfile, 'ab') as f:
             np.savetxt(f, np.array(['theta = %f' % self.theta]), fmt='%s')
             np.savetxt(f, np.array(['array_l1_final']), fmt='%s')
             np.savetxt(f, np.array([mean_l1_final]), fmt='%.3e')
