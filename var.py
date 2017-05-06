@@ -12,13 +12,14 @@ from statsmodels.tsa.stattools import adfuller
 
 class var():
 
-    def __init__(self, train='train_normalized', test='test_normalized', d=21):
+    #def __init__(self, train='train_normalized', test='test_normalized', d=21):
+    def __init__(self, d=21):
         """
         Arguments:
-        d - number of topics
+        d - number to topics to use (includes the null topic at index 0)
         """
-        self.df_train, self.df_test = self.read_data(train, test, d)
-
+        # self.df_train, self.df_test = self.read_data(train, test, d)
+        self.d = d
 #        self.mdata = sm.datasets.macrodata.load_pandas().data
 #
 #        self.dates = self.mdata[['year', 'quarter']].astype(int).astype(str)
@@ -38,32 +39,43 @@ class var():
 #        self.results = self.model.fit(2)
 
 
-    def read_data(self, train, test, d):
+    def read_data(self, train='train_normalized', train_start=1, train_end=27, test='test_normalized', test_start=27, test_end=38):
+        """
+        Arguments:
+        train - directory that holds normalized training data
+        train_start - the smallest day number among training files
+        train_end - the largest day number among training files
+        test - directory that holds normalized test data
+        test_start - the smallest day number among test files
+        test_end - the largest day number among test files
 
+        """
         print("Reading train files")
         list_df = []
         idx = 0
         # for filename in os.listdir(train):
-        for num_day in range(1, 27):
+        for num_day in range(train_start, train_end):
             filename = "trend_distribution_day%d_reordered.csv" % num_day
             print(filename)
             path_to_file = train + '/' + filename
-            df = pd.read_csv(path_to_file, sep=' ', header=None, names=range(d), usecols=range(d), dtype=np.float64)
+            df = pd.read_csv(path_to_file, sep=' ', header=None, names=range(self.d), usecols=range(self.d), dtype=np.float64)
             df.index = np.arange(idx, idx+16)
             list_df.append(df)
             idx += 16
             
         df_train = pd.concat(list_df)
         df_train.index = pd.to_datetime(df_train.index, unit="D")
-
+        self.df_train = df_train
+        
         print("Reading test files")
         list_df = []
-        idx = 0
-        for filename in os.listdir(test):
+        # for filename in os.listdir(test):
+        for num_day in range(test_start, test_end):
+            filename = "trend_distribution_day%d_reordered.csv" % num_day
             print(filename)
             path_to_file = test + '/' + filename
-            df = pd.read_csv(path_to_file, sep=' ', header=None, names=range(d), usecols=range(d), dtype=np.float64)
-            df.index = np.arange(idx, idx+16)
+            df = pd.read_csv(path_to_file, sep=' ', header=None, names=range(self.d), usecols=range(self.d), dtype=np.float64)
+            df.index = np.arange(idx, idx+16) # use the same idx that was incremented when reading training data
             list_df.append(df)
             idx += 16
         if len(list_df):
@@ -72,8 +84,9 @@ class var():
             df_test = pd.DataFrame()
 
         df_test.index = pd.to_datetime(df_test.index, unit="D")
-
-        return df_train, df_test
+        self.df_test = df_test
+        
+        #return df_train, df_test
 
 
     def check_stationarity(self, topic):
@@ -176,7 +189,6 @@ class var():
         array_l1_mean = np.zeros(len_fitted)
         array_JSD_mean = np.zeros(len_fitted)
         idx_fitted = 0 # start at very beginning
-        idx_empirical = idx_fitted + lag # start at the hour that corresponds to idx_fitted=0
 
         while idx_fitted < len_fitted:
             l1 = norm( self.df_train.ix[idx_fitted+lag] - self.results.fittedvalues.ix[idx_fitted], ord=1)
@@ -201,22 +213,107 @@ class var():
         print(mean_JSD)
         
 
-    def forecast(self, num_prior, steps, topic=0):
+    def forecast(self, num_prior=416, steps=176, topic=0):
+        """
+        Arguments:
+        num_prior - number of training datapoints prior to start of future to use
+        steps - number of future points to generate
+        topic - topic to plot
+        """
+
         lag = self.results.k_ar
         num_previous = len(self.df_train.index)
         
         future = self.results.forecast(self.df_train.values[-num_prior:], steps)
 
-        df = pd.DataFrame(future)
-        df.index = np.arange(num_previous, num_previous+steps)
-        df.index = pd.to_datetime(df.index, unit="D")
+        self.df_future = pd.DataFrame(future)
+        self.df_future.index = np.arange(num_previous, num_previous+steps)
+        self.df_future.index = pd.to_datetime(self.df_future.index, unit="D")
 
-        self.future = df
-
+        # For plotting future along with raw data and fitted time series
         plt.plot(self.df_train.index, self.df_train[topic], color='r', label='data')        
         plt.plot(self.df_train.index[lag:], self.results.fittedvalues[topic], color='b', label='time series')
-        plt.plot(self.future.index, self.future[topic], color='g', label='future')
+        plt.plot(self.df_future.index, self.df_future[topic], color='g', label='future')
+        plt.plot(self.df_test.index, self.df_test[topic], color='k', label='test data')
         plt.legend(loc='best')
         plt.title('Topic %d data and fitted time series' % topic)
         plt.show()
 
+
+    def evaluate_test(self):
+        lag = self.results.k_ar
+
+        # Total number of distributions in future 
+        len_future = len(self.df_future.index)
+        # Total number of distributions across all days and all hours in test set
+        len_empirical = len(self.df_test.index)
+        
+        if len_future != len_empirical:
+            print("Lengths of test set and generated future differ!")
+            return
+
+        ### Part 1: evaluate final distributions only ###
+
+        # start at final distribution of day1
+        idx_future = 15
+        idx_empirical = 15
+
+        # num_trajectories = number of days
+        num_trajectories = int(len_empirical/16)
+        array_l1_final = np.zeros(num_trajectories)
+        array_JSD_final = np.zeros(num_trajectories)
+        
+        # Go through all final distributions
+        idx =  0
+        while idx_future < len_future and idx_empirical < len_empirical:
+            l1_final = norm( self.df_test.ix[idx_empirical] - self.df_future.ix[idx_future], ord=1)
+            array_l1_final[idx] = l1_final
+
+            JSD_final = self.JSD( self.df_test.ix[idx_empirical], self.df_future.ix[idx_future] )
+            array_JSD_final[idx] = JSD_final
+
+            idx_future += 16
+            idx_empirical += 16
+            idx += 1
+
+        ### Part 2: evaluate distributions at all hours ###
+
+        array_l1_mean = np.zeros(len_future)
+        array_JSD_mean = np.zeros(len_future)
+        idx_future = 0 # start at very beginning
+
+        while idx_future < len_future:
+            l1 = norm( self.df_test.ix[idx_future] - self.df_future.ix[idx_future], ord=1)
+            array_l1_mean[idx_future] = l1
+
+            JSD_final = self.JSD( self.df_test.ix[idx_future], self.df_future.ix[idx_future] )
+            array_JSD_mean[idx_future] = JSD_final            
+            idx_future += 1
+
+        # Mean over all days of the difference between final distributions
+        mean_l1_final = np.mean(array_l1_final)
+        mean_JSD_final = np.mean(array_JSD_final)
+        print(array_l1_final)
+        print(array_JSD_final)
+        print(mean_l1_final)
+        print(mean_JSD_final)
+
+        # Mean over all hours of the difference between distributions at all hours
+        mean_l1 = np.mean(array_l1_mean)
+        mean_JSD = np.mean(array_JSD_mean)
+        print(mean_l1)
+        print(mean_JSD)        
+
+
+if __name__ == "__main__":
+    exp = var(d=21)
+    print("reading data")
+    exp.read_data()
+    print("training")
+    exp.train()
+    print("evaluate training performance")
+    exp.evaluate_train()
+    print("forecasting")
+    exp.forecast()
+    print("evaluate test performance")
+    exp.evaluate_test()
