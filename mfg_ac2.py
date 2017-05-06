@@ -6,6 +6,11 @@ from numpy.linalg import norm
 from scipy import special
 from scipy.stats import entropy
 
+import pandas as pd
+import matplotlib.pylab as plt
+
+import var
+
 import os
 import itertools
 import time
@@ -38,6 +43,7 @@ class actor_critic:
 
         self.mat_alpha_deriv = np.zeros([self.d, self.d])
 
+        self.var = var.var(d=d)
 
 # ------------------- File processing functions ------------------ #
 
@@ -548,34 +554,36 @@ class actor_critic:
         return 0.5 * (entropy(P,M) + entropy(Q,M))
 
 
-    def generate_trajectory(self, pi0, total_steps):
+    def generate_trajectory(self, pi0, total_hours):
         """
         Argument:
-        pi0 - initial population distribution
+        pi0 - initial population distribution (included in output)
+        total_hours - number of hours to generate (including first and last hour)
 
         Return:
         Matrix, each row is the distribution at a discrete time step,
-        from pi^1 to pi^N
-        pi^0 is not included
+        from pi^0 to pi^N
         """
 
-        num_steps = 0
         pi = pi0
         # Initialize matrix to store trajectory
         # total_steps rows by d columns
-        mat_trajectory = np.zeros([total_steps, self.d])
+        mat_trajectory = np.zeros([total_hours, self.d])
+        # Store initial distribution
+        mat_trajectory[0] = pi
+        hour = 1
 
-        while num_steps < total_steps:
+        while hour < total_hours:
             P = self.sample_action(pi)
             pi_next = np.transpose(P).dot(pi)
-            mat_trajectory[num_steps] = pi_next
+            mat_trajectory[hour] = pi_next
             pi = pi_next
-            num_steps += 1
+            hour += 1
 
         return mat_trajectory
 
 
-    def evaluate(self, theta, d, episode_length, indir='test_normalized', outfile='test_eval.csv'):
+    def evaluate(self, theta=7.401786, d=21, episode_length=16, indir='test_normalized', outfile='test_eval.csv'):
         """
         Main evaluation function
 
@@ -615,7 +623,7 @@ class actor_critic:
             array_l1_final[idx] = l1_final
 
             # L1 norm of difference between generated distribution and empirical distribution, averaged across all time steps
-            diff = mat_empirical[1:,] - mat_trajectory
+            diff = mat_empirical - mat_trajectory
             l1_mean = np.mean(np.apply_along_axis(lambda row: norm(row, ord=1), 1, diff))
             array_l1_mean[idx] = l1_mean
 
@@ -626,8 +634,8 @@ class actor_critic:
             # Average JS divergence across all time steps
             JSD_mean = 0
             for idx2 in range(episode_length):
-                # mat_empirical[0] is pi0,so skip it
-                JSD_mean += self.JSD(mat_empirical[idx2+1], mat_trajectory[idx2])
+                JSD_mean += self.JSD(mat_empirical[idx2], mat_trajectory[idx2])
+                
             JSD_mean = JSD_mean / episode_length
             array_JSD_mean[idx] = JSD_mean
             
@@ -660,6 +668,59 @@ class actor_critic:
         print("array_JSD_final\n", array_JSD_final)
         print("array_JSD_mean\n", array_JSD_mean)
 
+
+    def visualize(self, theta=7.401786, d=21, topic=0, dir_train='train_normalized', train_start=1, train_end=27, dir_test='test_normalized', test_start=27, test_end=38):
+        """
+        Run MFG policy forward using initial distributions across both training and test set,
+        and plot trajectory of topic against all measurement data.
+        """
+        self.theta = theta
+        self.d = d
+        
+        # Read train and test data
+        df_train, df_test = self.var.read_data(dir_train, train_start, train_end, dir_test, test_start, test_end)
+
+        # Generate trajectory from train data using policy
+        print("Generating trajectory from train data")
+        list_df = []
+        idx = 0
+        for num_day in range(train_start, train_end):
+            # Read initial distribution pi0
+            pi0 = np.array(df_train.iloc[(num_day-1)*16])
+
+            # Generate entire trajectory using policy
+            mat_trajectory = self.generate_trajectory(pi0, total_hours=16)
+            df = pd.DataFrame(mat_trajectory)
+            df.index = np.arange(idx, idx+16)
+            list_df.append(df)
+            idx += 16
+
+        self.df_train_generated = pd.concat(list_df)
+        self.df_train_generated.index = pd.to_datetime(self.df_train_generated.index, unit="D")
+
+        # Generate trajectory using policy on test data
+        print("Generating trajectory from test data")
+        list_df = []
+        for num_day in range(test_start, test_end):
+            # Read initial distribution
+            pi0 = np.array(df_test.iloc[(num_day-test_start)*16])
+            # Generate entire trajectory using policy
+            mat_trajectory = self.generate_trajectory(pi0, total_hours=16)
+            df = pd.DataFrame(mat_trajectory)
+            df.index = np.arange(idx, idx+16) # use same idx that was incremented above
+            list_df.append(df)
+            idx += 16
+        self.df_test_generated = pd.concat(list_df)
+        self.df_test_generated.index = pd.to_datetime(self.df_test_generated.index, unit="D")
+
+        plt.plot(df_train.index, df_train[topic], color='r', linestyle='--', label='train data')
+        plt.plot(self.df_train_generated.index, self.df_train_generated[topic], color='b', label='train generated')
+        plt.plot(df_test.index, df_test[topic], color='k', linestyle='--', label='test data')
+        plt.plot(self.df_test_generated.index, self.df_test_generated[topic], color='g', label='test generated')
+        plt.legend(loc='best')
+        plt.title("Topic %d empirical and generated data" % topic)
+        plt.show()
+        
 
 if __name__ == "__main__":
     ac = actor_critic(theta=10, shift=0, alpha_scale=100, d=34)
