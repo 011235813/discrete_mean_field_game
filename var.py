@@ -86,7 +86,7 @@ class var():
         df_test.index = pd.to_datetime(df_test.index, unit="D")
         self.df_test = df_test
         
-        #return df_train, df_test
+        return self.df_train, self.df_test
 
 
     def check_stationarity(self, topic):
