@@ -511,11 +511,13 @@ class actor_critic:
                 # w <- w + alpha * delta * varphi(pi)
                 # still a column vector
                 length = len(vec_features)
-                self.w = self.w + lr_critic * delta * vec_features.reshape(length,1)
+                # self.w = self.w + lr_critic * delta * vec_features.reshape(length,1) #here
+                self.w = self.w + (lr_critic/(episode+1)) * delta * vec_features.reshape(length,1) #here
 
                 # theta update
                 gradient = self.calc_gradient_vectorized(P, pi)
-                self.theta = self.theta - lr_actor * delta * gradient
+                # self.theta = self.theta - lr_actor * delta * gradient #here
+                self.theta = self.theta - (lr_actor/((episode+1)*np.log(episode+1))) * delta * gradient #here
 
                 discount = discount * gamma
                 pi = pi_next
