@@ -443,7 +443,7 @@ class actor_critic:
         f.close()
     
 
-    def train(self, num_episodes=4000, gamma=1, lr_critic=0.1, lr_actor=0.001, consecutive=100, file_theta='results/theta.csv', file_pi='results/pi.csv', file_cost='results/cost.csv', write_file=0, write_all=0):
+    def train(self, num_episodes=4000, gamma=1, constant=0, lr_critic=0.1, lr_actor=0.001, consecutive=100, file_theta='results/theta.csv', file_pi='results/pi.csv', file_cost='results/cost.csv', write_file=0, write_all=0):
         """
         Input:
         1. num_episodes - each episode is 16 steps (9am to 12midnight)
@@ -511,13 +511,17 @@ class actor_critic:
                 # w <- w + alpha * delta * varphi(pi)
                 # still a column vector
                 length = len(vec_features)
-                # self.w = self.w + lr_critic * delta * vec_features.reshape(length,1) #here
-                self.w = self.w + (lr_critic/(episode+1)) * delta * vec_features.reshape(length,1) #here
+                if constant == 1:
+                    self.w = self.w + lr_critic * delta * vec_features.reshape(length,1)
+                else
+                    self.w = self.w + (lr_critic/(episode+1)) * delta * vec_features.reshape(length,1) #here
 
                 # theta update
                 gradient = self.calc_gradient_vectorized(P, pi)
-                # self.theta = self.theta - lr_actor * delta * gradient #here
-                self.theta = self.theta - (lr_actor/((episode+1)*np.log(np.log(episode+20)))) * delta * gradient #here
+                if constant == 1:
+                    self.theta = self.theta - lr_actor * delta * gradient
+                else:
+                    self.theta = self.theta - (lr_actor/((episode+1)*np.log(np.log(episode+20)))) * delta * gradient #here
 
                 discount = discount * gamma
                 pi = pi_next
