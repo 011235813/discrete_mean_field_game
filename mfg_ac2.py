@@ -720,17 +720,17 @@ class actor_critic:
         self.df_test_generated = pd.concat(list_df)
         self.df_test_generated.index = pd.to_datetime(self.df_test_generated.index, unit="D")
 
-        plt.plot(df_train.index, df_train[topic], color='r', linestyle='--', label='train data')
-        plt.plot(self.df_train_generated.index, self.df_train_generated[topic], color='b', label='train generated')
-        plt.plot(df_test.index, df_test[topic], color='k', linestyle='--', label='test data')
-        plt.plot(self.df_test_generated.index, self.df_test_generated[topic], color='g', label='test generated')
+        plt.plot(df_train.index, df_train[topic], color='r', linestyle='-', label='train data')
+        plt.plot(self.df_train_generated.index, self.df_train_generated[topic], color='b', linestyle='--', label='train generated')
+        plt.plot(df_test.index, df_test[topic], color='k', linestyle='-', label='test data')
+        plt.plot(self.df_test_generated.index, self.df_test_generated[topic], color='g', linestyle='--', label='test generated')
         plt.legend(loc='best')
         plt.title("Topic %d empirical and generated data" % topic)
         plt.show()
         
 
 if __name__ == "__main__":
-    ac = actor_critic(theta=10, shift=0.5, alpha_scale=100, d=21)
+    ac = actor_critic(theta=10, shift=0.5, alpha_scale=100000, d=21)
     t_start = time.time()
     ac.train(num_episodes=100000, gamma=1, lr_critic=0.1, lr_actor=0.1, consecutive=100, write_file=1, write_all=0)
     t_end = time.time()
