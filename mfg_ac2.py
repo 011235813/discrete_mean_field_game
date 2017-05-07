@@ -513,7 +513,7 @@ class actor_critic:
                 length = len(vec_features)
                 if constant == 1:
                     self.w = self.w + lr_critic * delta * vec_features.reshape(length,1)
-                else
+                else:
                     self.w = self.w + (lr_critic/(episode+1)) * delta * vec_features.reshape(length,1) #here
 
                 # theta update
