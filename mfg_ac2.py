@@ -732,6 +732,6 @@ class actor_critic:
 if __name__ == "__main__":
     ac = actor_critic(theta=10, shift=0.5, alpha_scale=100, d=21)
     t_start = time.time()
-    ac.train(num_episodes=10000, gamma=1, lr_critic=0.1, lr_actor=0.1, consecutive=100, write_file=1, write_all=0)
+    ac.train(num_episodes=100000, gamma=1, lr_critic=0.1, lr_actor=0.1, consecutive=100, write_file=1, write_all=0)
     t_end = time.time()
     print("Time elapsed", t_end - t_start)
