@@ -436,9 +436,9 @@ class actor_critic:
         return gradient
 
 
-    def train_log(self, vector, filename):
+    def train_log(self, vector, filename, str_format):
         f = open(filename, 'a')
-        vector.tofile(f, sep=',', format="%.3e")
+        vector.tofile(f, sep=',', format=str_format)
         f.write("\n")
         f.close()
     
@@ -536,9 +536,9 @@ class actor_critic:
                 print("Average cost during previous %d episodes: " % consecutive, str(cost_avg))
                 list_cost = []
                 if write_file:
-                    self.train_log(self.theta, file_theta)
-                    self.train_log(pi, file_pi)
-                    self.train_log(np.array([cost_avg]), file_cost)
+                    self.train_log(self.theta, file_theta, "%.5e")
+                    self.train_log(pi, file_pi, "%.3e")
+                    self.train_log(np.array([cost_avg]), file_cost, "%.3e")
 
 
 # ---------------- End training code ---------------- #
