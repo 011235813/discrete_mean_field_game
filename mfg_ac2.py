@@ -680,7 +680,7 @@ class actor_critic:
         print("array_JSD_mean\n", array_JSD_mean)
 
 
-    def visualize(self, theta=7.401786, d=21, topic=0, dir_train='train_normalized', train_start=1, train_end=27, dir_test='test_normalized', test_start=27, test_end=38):
+    def visualize(self, theta=8.86349, d=21, topic=0, dir_train='train_normalized', train_start=1, train_end=27, dir_test='test_normalized', test_start=27, test_end=38):
         """
         Run MFG policy forward using initial distributions across both training and test set,
         and plot trajectory of topic against all measurement data.
@@ -724,10 +724,16 @@ class actor_critic:
         self.df_test_generated = pd.concat(list_df)
         self.df_test_generated.index = pd.to_datetime(self.df_test_generated.index, unit="D")
 
-        plt.plot(df_train.index, df_train[topic], color='r', linestyle='-', label='train data')
-        plt.plot(self.df_train_generated.index, self.df_train_generated[topic], color='b', linestyle='--', label='train generated')
-        plt.plot(df_test.index, df_test[topic], color='k', linestyle='-', label='test data')
-        plt.plot(self.df_test_generated.index, self.df_test_generated[topic], color='g', linestyle='--', label='test generated')
+        num_train = len(self.df_train_generated.index)
+        array_x_train = np.arange(num_train)
+        array_x_test = np.arange(num_train, num_train+len(self.df_test_generated.index))
+
+        plt.plot(array_x_train, df_train[topic], color='r', linestyle='-', label='train data')
+        plt.plot(array_x_train, self.df_train_generated[topic], color='b', linestyle='--', label='MFG (train)')
+        plt.plot(array_x_test, df_test[topic], color='k', linestyle='-', label='test data')
+        plt.plot(array_x_test, self.df_test_generated[topic], color='g', linestyle='--', label='MFG (test)')        
+        plt.ylabel('Topic %d popularity' % topic)
+        plt.xlabel('Time steps (hrs)')
         plt.legend(loc='best')
         plt.title("Topic %d empirical and generated data" % topic)
         plt.show()
