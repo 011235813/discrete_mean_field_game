@@ -230,11 +230,16 @@ class var():
         self.df_future.index = np.arange(num_previous, num_previous+steps)
         self.df_future.index = pd.to_datetime(self.df_future.index, unit="D")
 
+        array_x_train = np.arange(num_previous)
+        array_x_test = np.arange(num_previous, num_previous+len(self.df_future.index))
+
         # For plotting future along with raw data and fitted time series
-        plt.plot(self.df_train.index, self.df_train[topic], color='r', label='data')        
-        plt.plot(self.df_train.index[lag:], self.results.fittedvalues[topic], color='b', label='time series')
-        plt.plot(self.df_future.index, self.df_future[topic], color='g', label='future')
-        plt.plot(self.df_test.index, self.df_test[topic], color='k', label='test data')
+        plt.plot(array_x_train, self.df_train[topic], color='r', linestyle='-', label='train data')        
+        plt.plot(array_x_train[lag:], self.results.fittedvalues[topic], color='b', linestyle='--', label='time series (train)')
+        plt.plot(array_x_test, self.df_test[topic], color='k', linestyle='-', label='test data')
+        plt.plot(array_x_test, self.df_future[topic], color='g', linestyle='--', label='time series (test)')
+        plt.ylabel('Topic %d popularity' % topic)
+        plt.xlabel('Time steps (hrs)')
         plt.legend(loc='best')
         plt.title('Topic %d data and fitted time series' % topic)
         plt.show()
