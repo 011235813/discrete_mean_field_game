@@ -258,7 +258,8 @@ class actor_critic:
         = - 1/2< pi , v >
         where v is vector whose i-th element is ||P_i||^2
         """
-        v = np.power( norm(P, axis=1), 2 )
+        # v = np.power( norm(P, axis=1), 2 )
+        v = np.apply_along_axis(lambda row: np.power(norm(row, ord=2),2), 1, P)
         reward = -0.5* pi.dot(v)
         
         return reward
@@ -733,7 +734,8 @@ class actor_critic:
         reward vector is v
         where v is vector whose i-th element is -1/2 ||P_i||^2
         """
-        v = -0.5 * np.power( norm(P, axis=1), 2 )
+        # v = -0.5 * np.power( norm(P, axis=1), 2 )
+        v = -0.5 * np.apply_along_axis(lambda row: np.power( norm(row, ord=2), 2), 1, P)
 
         return v
 
