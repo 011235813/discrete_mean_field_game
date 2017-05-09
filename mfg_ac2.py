@@ -10,6 +10,7 @@ import platform
 if (platform.system() == "Windows"):
     import pandas as pd
     import matplotlib.pylab as plt
+    from matplotlib.backends.backend_pdf import PdfPages    
     import var
 
 import os
@@ -654,7 +655,9 @@ class actor_critic:
 
         # Mean over all test files
         mean_l1_final = np.mean(array_l1_final)
+        std_l1_final = np.std(array_l1_final)
         mean_l1_mean = np.mean(array_l1_mean)
+        std_l1_mean = np.std(array_l1_mean)
         mean_JSD_final = np.mean(array_JSD_final)
         mean_JSD_mean = np.mean(array_JSD_mean)
 
@@ -662,9 +665,11 @@ class actor_critic:
             np.savetxt(f, np.array(['theta = %f' % self.theta]), fmt='%s')
             np.savetxt(f, np.array(['array_l1_final']), fmt='%s')
             np.savetxt(f, np.array([mean_l1_final]), fmt='%.3e')
+            np.savetxt(f, np.array([std_l1_final]), fmt='%.3e')            
             np.savetxt(f, array_l1_final.reshape(1, num_test_trajectories), delimiter=',', fmt='%.3e')
             np.savetxt(f, np.array(['array_l1_mean']), fmt='%s')
             np.savetxt(f, np.array([mean_l1_mean]), fmt='%.3e')
+            np.savetxt(f, np.array([std_l1_mean]), fmt='%.3e')            
             np.savetxt(f, array_l1_mean.reshape(1, num_test_trajectories), delimiter=',', fmt='%.3e')
             np.savetxt(f, np.array(['array_JSD_final']), fmt='%s')
             np.savetxt(f, np.array([mean_JSD_final]), fmt='%.3e')
@@ -680,7 +685,7 @@ class actor_critic:
         print("array_JSD_mean\n", array_JSD_mean)
 
 
-    def visualize(self, theta=8.86349, d=21, topic=0, dir_train='train_normalized', train_start=1, train_end=27, dir_test='test_normalized', test_start=27, test_end=38):
+    def visualize(self, theta=8.86349, d=21, topic=0, dir_train='train_normalized', train_start=1, train_end=27, dir_test='test_normalized', test_start=27, test_end=38, outfile='plots/mfg_topic0_theta8p86_s0p5_alpha1e4_m5d9.pdf'):
         """
         Run MFG policy forward using initial distributions across both training and test set,
         and plot trajectory of topic against all measurement data.
@@ -728,6 +733,7 @@ class actor_critic:
         array_x_train = np.arange(num_train)
         array_x_test = np.arange(num_train, num_train+len(self.df_test_generated.index))
 
+        fig = plt.figure()
         plt.plot(array_x_train, df_train[topic], color='r', linestyle='-', label='train data')
         plt.plot(array_x_train, self.df_train_generated[topic], color='b', linestyle='--', label='MFG (train)')
         plt.plot(array_x_test, df_test[topic], color='k', linestyle='-', label='test data')
@@ -736,8 +742,10 @@ class actor_critic:
         plt.xlabel('Time steps (hrs)')
         plt.legend(loc='best')
         plt.title("Topic %d empirical and generated data" % topic)
-        plt.show()
-        
+        # plt.show()
+        pp = PdfPages(outfile)
+        pp.savefig(fig)
+        pp.close()        
 
 if __name__ == "__main__":
     ac = actor_critic(theta=10, shift=0.5, alpha_scale=100000, d=21)
