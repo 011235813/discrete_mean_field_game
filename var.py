@@ -245,7 +245,7 @@ class var():
         plt.show()
 
 
-    def evaluate_test(self):
+    def evaluate_test(self, outfile='test_eval_var.csv'):
         lag = self.results.k_ar
 
         # Total number of distributions in future 
@@ -283,20 +283,26 @@ class var():
 
         ### Part 2: evaluate distributions at all hours ###
 
-        array_l1_mean = np.zeros(len_future)
-        array_JSD_mean = np.zeros(len_future)
-        idx_future = 0 # start at very beginning
+        array_l1_mean = np.zeros(num_trajectories)
+        array_JSD_mean = np.zeros(num_trajectories)
+        idx_day = 0
+        while idx_day < num_trajectories:
+            idx_hour = 0
+            l1 = 0
+            jsd = 0
+            while idx_hour < 16:
+                idx = 16*idx_day + idx_hour
+                l1 += norm( self.df_test.ix[idx] - self.df_future.ix[idx], ord=1 )
+                jsd += self.JSD( self.df_test.ix[idx], self.df_future.ix[idx] )
+                idx_hour += 1
 
-        while idx_future < len_future:
-            l1 = norm( self.df_test.ix[idx_future] - self.df_future.ix[idx_future], ord=1)
-            array_l1_mean[idx_future] = l1
-
-            JSD_final = self.JSD( self.df_test.ix[idx_future], self.df_future.ix[idx_future] )
-            array_JSD_mean[idx_future] = JSD_final            
-            idx_future += 1
+            array_l1_mean[idx_day] = l1/16
+            array_JSD_mean[idx_day] = jsd/16
+            idx_day += 1
 
         # Mean over all days of the difference between final distributions
         mean_l1_final = np.mean(array_l1_final)
+        std_l1_final = np.std(array_l1_final)
         mean_JSD_final = np.mean(array_JSD_final)
         print(array_l1_final)
         print(array_JSD_final)
@@ -304,10 +310,28 @@ class var():
         print(mean_JSD_final)
 
         # Mean over all hours of the difference between distributions at all hours
-        mean_l1 = np.mean(array_l1_mean)
-        mean_JSD = np.mean(array_JSD_mean)
-        print(mean_l1)
-        print(mean_JSD)        
+        mean_l1_mean = np.mean(array_l1_mean)
+        std_l1_mean = np.std(array_l1_mean)
+        mean_JSD_mean = np.mean(array_JSD_mean)
+        print(mean_l1_mean)
+        print(mean_JSD_mean)        
+
+        with open(outfile, 'ab') as f:
+            np.savetxt(f, np.array(['array_l1_final']), fmt='%s')
+            np.savetxt(f, np.array([mean_l1_final]), fmt='%.3e')
+            np.savetxt(f, np.array([std_l1_final]), fmt='%.3e')            
+            np.savetxt(f, array_l1_final.reshape(1, num_trajectories), delimiter=',', fmt='%.3e')
+            np.savetxt(f, np.array(['array_l1_mean']), fmt='%s')
+            np.savetxt(f, np.array([mean_l1_mean]), fmt='%.3e')
+            np.savetxt(f, np.array([std_l1_mean]), fmt='%.3e')            
+            np.savetxt(f, array_l1_mean.reshape(1, num_trajectories), delimiter=',', fmt='%.3e')
+            np.savetxt(f, np.array(['array_JSD_final']), fmt='%s')
+            np.savetxt(f, np.array([mean_JSD_final]), fmt='%.3e')
+            np.savetxt(f, array_JSD_final.reshape(1, num_trajectories), delimiter=',', fmt='%.3e')
+            np.savetxt(f, np.array(['array_JSD_mean']), fmt='%s')
+            np.savetxt(f, np.array([mean_JSD_mean]), fmt='%.3e')
+            np.savetxt(f, array_JSD_mean.reshape(1, num_trajectories), delimiter=',', fmt='%.3e')
+
 
 
 if __name__ == "__main__":
