@@ -1,3 +1,12 @@
 temp.csv
-data_train/
-data_train_reordered/
+mfg_ac.pyc
+mfg_ac2.pyc
+train/
+train_reordered/
+train_normalized/
+test/
+test_reordered/
+test_normalized/
+results/
+plots/
+*~
