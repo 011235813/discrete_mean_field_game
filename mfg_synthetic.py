@@ -764,15 +764,18 @@ class actor_critic:
                 # V^n = r + P * V^{n+1}
                 mat_V[: , n:n+1] = vec_reward.reshape(self.d, 1) + array_actions[n].dot( mat_V[:, n+1:n+2] )
 
-        print("P_12 at time 0 =", array_actions[0,1,2])
-        print("V_2 - V_1 at time 0 =", (mat_V[2,0] - mat_V[1,0]))
+        print("P_01 at time 0 =", array_actions[0,0,1])
+        print("V_1 - V_0 at time 0 =", (mat_V[1,0] - mat_V[0,0]))
+
+        print("P_00 at time 0 =", array_actions[0,0,0])
+        print("value =", (1 - (np.sum(mat_V[:,0]) - mat_V[0,0] - (self.d-1)*mat_V[0,0])))
         return mat_V
 
 
 if __name__ == "__main__":
-    ac = actor_critic(theta=0, shift=0, alpha_scale=10000, d=21)
-    ac.train(num_episodes=4000, gamma=1, constant=1, lr_critic=0.1, lr_actor=0.01, consecutive=100, write_file=1)
+    ac = actor_critic(theta=2.6, shift=0.5, alpha_scale=10000, d=21)
+    ac.train(num_episodes=10000, gamma=1, constant=0, lr_critic=0.1, lr_actor=0.01, consecutive=100, write_file=1)
 
-#    ac.init_pi0('train_normalized')
-#
-#    mat_V = ac.evaluate_synthetic(1,1)
+    #ac.init_pi0('train_normalized')
+
+    #mat_V = ac.evaluate_synthetic(1,1)
