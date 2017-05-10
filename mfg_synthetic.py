@@ -494,7 +494,7 @@ class actor_critic:
                 if constant == 1:
                     self.w = self.w + lr_critic * delta * vec_features.reshape(length,1)
                 else:
-                    self.w = self.w + (lr_critic/(episode+1)) * delta * vec_features.reshape(length,1) #here
+                    self.w = self.w + (lr_critic/(episode+1)) * delta * vec_features.reshape(length,1)
 
                 # theta update
                 gradient = self.calc_gradient_vectorized(P, pi)
@@ -503,7 +503,7 @@ class actor_critic:
                     self.theta = self.theta + lr_actor * delta * gradient 
                 else:
                     # NOTE THE SIGN IS NOW POSITIVE (mfg_ac2 has negative)
-                    self.theta = self.theta + (lr_actor/((episode+1)*np.log(np.log(episode+20)))) * delta * gradient #here
+                    self.theta = self.theta + (lr_actor/((episode+1)*np.log(np.log(episode+20)))) * delta * gradient
 
                 discount = discount * gamma
                 pi = pi_next
@@ -770,7 +770,9 @@ class actor_critic:
 
 
 if __name__ == "__main__":
-    ac = actor_critic(theta=10, shift=0.5, alpha_scale=100000, d=21)
-    ac.init_pi0('train_normalized')
-    # ac.train(num_episodes=100000, gamma=1, lr_critic=0.1, lr_actor=0.1, consecutive=100, write_file=1, write_all=0)
-    mat_V = ac.evaluate_synthetic(1,1)
+    ac = actor_critic(theta=0, shift=0, alpha_scale=10000, d=21)
+    ac.train(num_episodes=4000, gamma=1, constant=1, lr_critic=0.1, lr_actor=0.01, consecutive=100, write_file=1)
+
+#    ac.init_pi0('train_normalized')
+#
+#    mat_V = ac.evaluate_synthetic(1,1)
