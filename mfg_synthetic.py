@@ -446,11 +446,9 @@ class actor_critic:
                 with open('temp.csv', 'a') as f:
                     f.write('Episode %d \n\n' % episode)
             # Sample starting pi^0 from mat_pi0
-            idx_row = np.random.randint(self.num_start_samples) #here
-            # idx_row = 0 # for testing purposes, select the first row of day 1 always #here
-            # print("idx_row", idx_row)
-            pi = self.mat_pi0[idx_row, :] # row vector #here
-            # pi = np.array([0.7, 0.09, 0.01, 0.2]) #here for testing
+            idx_row = np.random.randint(self.num_start_samples)
+            # idx_row = 0 # for testing purposes, select the first row of day 1 always
+            pi = self.mat_pi0[idx_row, :] # row vector
 
             discount = 1
             total_reward = 0
@@ -740,19 +738,37 @@ class actor_critic:
         return v
 
 
-    def evaluate_synthetic(self, day_first=1, day_last=26):
+    def evaluate_synthetic(self, day_first=1, day_last=26, verbose=0):
         """
-        Check whether P_{ij}^n = 
-        V_j^n - V_i^n if i \neq j
-        - \sum_{j: j \neq i} (V_j^n - V_i^n) + 1 if i == j
-        
-        Requires train() to be run first, to get a policy (self.theta) 
+        Evaluates how close P_{ij}^n is to
+        1. V_j^n - V_i^n , if i \neq j
+        2. - \sum_{j: j \neq i} (V_j^n - V_i^n) + 1 , if i == j
+
+        Argument:
+        day_first - first training file
+        day_last - last training file
+        verbose - obvious
+
+        Return:
+        diff_mean
+        diff_std
+
+        For each day, for each hour, sum up the 
+        absolute difference between P_{ij} and the value
+        computed using the value function, over all i and all j
+        This gives an array of values, one value for each hour, for all hours and all days.
+        Report the mean and standard deviation of this array.
+
+        Requires self.theta to be set prior to running this. 
         """
+
+        list_diff = []
         # For each initial distribution, use policy to generate trajectory
         # pi^0, P^0, pi^1, P^1,...pi^N
-        for day in range(day_first, day_last+1):
+        for day in range(day_first-1, day_last):
             # Get initial distribution
             pi = self.mat_pi0[day, :]
+            # Get sequence of distributions pi^n and actions P^n
             mat_trajectory, array_actions = self.generate_trajectory(pi, total_hours=16)
 
             # Use backward equation to get V^n_i for all n, for all i
@@ -763,19 +779,52 @@ class actor_critic:
                 vec_reward = self.calc_reward_vector( array_actions[n] )
                 # V^n = r + P * V^{n+1}
                 mat_V[: , n:n+1] = vec_reward.reshape(self.d, 1) + array_actions[n].dot( mat_V[:, n+1:n+2] )
+                
+            # Go through all P matrices for this day,
+            # get sum of absolute difference between P_{ij} and the value computed
+            # using the value function, for all i for all j
+            for n in range(0,15):
+                diff = 0
+                for idx_i in range(0, self.d):
+                    for idx_j in range(0, self.d):
+                        P_ij = array_actions[n, idx_i, idx_j]
+                        if idx_i == idx_j:
+                            # (-\sum_{j: j != i} V_j - V_i) + 1
+                            value = 1 - (np.sum(mat_V[:, n]) - self.d*mat_V[idx_i, n])
+                        else:
+                            # V_j - V_i
+                            value = mat_V[idx_j, n] - mat_V[idx_i, n]
+                        diff += abs(P_ij - value)
+                list_diff.append(diff)
 
-        print("P_01 at time 0 =", array_actions[0,0,1])
-        print("V_1 - V_0 at time 0 =", (mat_V[1,0] - mat_V[0,0]))
+        diff_mean = np.mean(list_diff)
+        diff_std = np.std(list_diff)
 
-        print("P_00 at time 0 =", array_actions[0,0,0])
-        print("value =", (1 - (np.sum(mat_V[:,0]) - mat_V[0,0] - (self.d-1)*mat_V[0,0])))
-        return mat_V
+        if verbose:
+            print("Mean over all hours", diff_mean)
+            print("Standard deviation", diff_std)
+                    
+            print("P_01 at time 0 =", array_actions[0,0,1])
+            print("V_1 - V_0 at time 0 =", (mat_V[1,0] - mat_V[0,0]))
+    
+            print("P_00 at time 0 =", array_actions[0,0,0])
+            print("value =", (1 - (np.sum(mat_V[:,0]) - mat_V[0,0] - (self.d-1)*mat_V[0,0])))
+        return diff_mean, diff_std
 
 
 if __name__ == "__main__":
-    ac = actor_critic(theta=2.6, shift=0.5, alpha_scale=10000, d=21)
-    ac.train(num_episodes=10000, gamma=1, constant=0, lr_critic=0.1, lr_actor=0.01, consecutive=100, write_file=1)
+    # Try to find a good theta (current best is 2.6)
+    f = open('synthetic.csv', 'a')
+    f.write("Theta,diff_mean,diff_std\n")
+    
+    for theta in np.arange(2.0, 3.0, 0.01):
+        print("Theta", theta)
+        ac = actor_critic(theta=theta, shift=0, alpha_scale=10000, d=21)
+        #ac.train(num_episodes=10000, gamma=1, constant=0, lr_critic=0.1, lr_actor=0.01, consecutive=100, write_file=1)
 
-    #ac.init_pi0('train_normalized')
+        ac.init_pi0('train_normalized')
 
-    #mat_V = ac.evaluate_synthetic(1,1)
+        diff_mean, diff_std = ac.evaluate_synthetic(day_first=1, day_last=26)
+        f.write("%e,%e,%e\n" % (theta, diff_mean, diff_std))
+
+    f.close()
