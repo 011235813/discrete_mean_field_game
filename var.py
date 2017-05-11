@@ -213,7 +213,7 @@ class var():
         print(mean_JSD)
         
 
-    def forecast(self, num_prior=416, steps=176, topic=0):
+    def forecast(self, num_prior=416, steps=176, topic=0, plot=1, show_plot=1):
         """
         Arguments:
         num_prior - number of training datapoints prior to start of future to use
@@ -233,16 +233,20 @@ class var():
         array_x_train = np.arange(num_previous)
         array_x_test = np.arange(num_previous, num_previous+len(self.df_future.index))
 
-        # For plotting future along with raw data and fitted time series
-        plt.plot(array_x_train, self.df_train[topic], color='r', linestyle='-', label='train data')        
-        plt.plot(array_x_train[lag:], self.results.fittedvalues[topic], color='b', linestyle='--', label='time series (train)')
-        plt.plot(array_x_test, self.df_test[topic], color='k', linestyle='-', label='test data')
-        plt.plot(array_x_test, self.df_future[topic], color='g', linestyle='--', label='time series (test)')
-        plt.ylabel('Topic %d popularity' % topic)
-        plt.xlabel('Time steps (hrs)')
-        plt.legend(loc='best')
-        plt.title('Topic %d data and fitted time series' % topic)
-        plt.show()
+        if plot == 1:
+            # For plotting future along with raw data and fitted time series
+            plt.plot(array_x_train, self.df_train[topic], color='r', linestyle='-', label='train data')        
+            plt.plot(array_x_train[lag:], self.results.fittedvalues[topic], color='b', linestyle='--', label='time series (train)')
+            plt.plot(array_x_test, self.df_test[topic], color='k', linestyle='-', label='test data')
+            plt.plot(array_x_test, self.df_future[topic], color='g', linestyle='--', label='time series (test)')
+            plt.ylabel('Topic %d popularity' % topic)
+            plt.xlabel('Time steps (hrs)')
+            plt.legend(loc='best')
+            plt.title('Topic %d data and fitted time series' % topic)
+            if show_plot == 1:
+                plt.show()
+
+        return self.df_future
 
 
     def evaluate_test(self, outfile='test_eval_var.csv'):
