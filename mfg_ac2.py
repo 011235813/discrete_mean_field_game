@@ -685,7 +685,7 @@ class actor_critic:
         print("array_JSD_mean\n", array_JSD_mean)
 
 
-    def visualize(self, theta=8.86349, d=21, topic=0, dir_train='train_normalized', train_start=1, train_end=27, dir_test='test_normalized', test_start=27, test_end=38, outfile='plots/mfg_topic0_theta8p86_s0p5_alpha1e4_m5d9.pdf'):
+    def visualize(self, theta=8.86349, d=21, topic=0, dir_train='train_normalized', train_start=1, train_end=27, dir_test='test_normalized', test_start=27, test_end=38, save_plot=0, outfile='plots/mfg_topic0_theta8p86_s0p5_alpha1e4_m5d9.pdf'):
         """
         Run MFG policy forward using initial distributions across both training and test set,
         and plot trajectory of topic against all measurement data.
@@ -742,10 +742,69 @@ class actor_critic:
         plt.xlabel('Time steps (hrs)')
         plt.legend(loc='best')
         plt.title("Topic %d empirical and generated data" % topic)
-        # plt.show()
-        pp = PdfPages(outfile)
-        pp.savefig(fig)
-        pp.close()        
+        if save_plot == 1:
+            pp = PdfPages(outfile)
+            pp.savefig(fig)
+            pp.close()
+        else:
+            plt.show()
+
+
+    def visualize_test(self, theta=8.86349, d=21, topic=0, dir_train='train_normalized', train_start=1, train_end=27, dir_test='test_normalized', test_start=27, test_end=38, save_plot=0, outfile='plots/mfg_var_topic0_theta8p86_s0p5_alpha1e4_m5d11.pdf'):
+        """
+        Produce plot of trajectory of raw test data, 
+        MFG generated data, and time series prediction (from var.py)
+        """
+        self.theta = theta
+        self.d = d
+        
+        # Read train and test data
+        df_train, df_test = self.var.read_data(dir_train, train_start, train_end, dir_test, test_start, test_end)
+
+        # Generate trajectory from test data using MFG policy
+        print("Generating MFG trajectory from test data")
+        idx = 0
+        list_df = []
+        for num_day in range(test_start, test_end):
+            # Read initial distribution
+            pi0 = np.array(df_test.iloc[(num_day-test_start)*16])
+            # Generate entire trajectory using policy
+            mat_trajectory = self.generate_trajectory(pi0, total_hours=16)
+            df = pd.DataFrame(mat_trajectory)
+            df.index = np.arange(idx, idx+16)
+            list_df.append(df)
+            idx += 16
+        self.df_test_generated = pd.concat(list_df)
+        self.df_test_generated.index = pd.to_datetime(self.df_test_generated.index, unit="D")
+
+        # Train VAR and get forecast
+        print("Running VAR to get forecast")
+        self.var.train()
+        df_future_var = self.var.forecast(num_prior=int(16*(train_end-train_start)), steps=int(16*(test_end-test_start)), topic=topic, plot=0, show_plot=0)
+
+        array_x_test = np.arange(0, len(self.df_test_generated.index))
+
+        #fig = plt.figure()
+        fig, ax = plt.subplots()
+        for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] + ax.get_xticklabels() + ax.get_yticklabels()):
+            item.set_fontsize(14)
+            
+        plt.plot(array_x_test, df_test[topic], color='k', linestyle='-', label='test data')
+        plt.plot(array_x_test, self.df_test_generated[topic], color='g', linestyle='--', label='MFG (test)')
+        plt.plot(array_x_test, df_future_var[topic], color='b', linestyle=':', label="VAR (test)")
+        plt.ylabel('Topic %d popularity' % topic)
+        plt.xlabel('Time steps (hrs)')
+        plt.legend(loc='best', prop={'size':14})
+        plt.title("Topic %d measurement and predictions" % topic)
+
+        if save_plot == 1:
+            pp = PdfPages(outfile)
+            pp.savefig(fig)
+            pp.close()
+        else:
+            plt.show()
+
+        
 
 if __name__ == "__main__":
     ac = actor_critic(theta=10, shift=0.5, alpha_scale=100000, d=21)
