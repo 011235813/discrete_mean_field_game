@@ -671,6 +671,17 @@ class actor_critic:
             f.write("%f,%f,%f,%.3e,%.3e,%.3e,%.3e,%.3e,%.3e,%.3e,%.3e\n" % (theta, shift, alpha_scale, mean_l1_final, std_l1_final, mean_l1_mean, std_l1_mean, mean_JSD_final, std_JSD_final, mean_JSD_mean, std_JSD_mean))
 
 
+    def gridsearch(self, theta, shift_range, alpha_range):
+        """
+        Arguments:
+        shift_range - array
+        alpha_range - 
+        """
+        for shift in shift_range:
+            for alpha_scale in alpha_range:
+                print("Shift %f, alpha %d" % (shift, alpha_scale))
+                self.evaluate(theta, shift, alpha_scale, write_header=0)
+
 
     def visualize(self, theta=8.86349, d=21, topic=0, dir_train='train_normalized', train_start=1, train_end=27, dir_test='test_normalized', test_start=27, test_end=38, save_plot=0, outfile='plots/mfg_topic0_theta8p86_s0p5_alpha1e4_m5d9.pdf'):
         """
