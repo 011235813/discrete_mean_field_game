@@ -595,7 +595,7 @@ class actor_critic:
         return mat_trajectory
 
 
-    def evaluate(self, theta=7.401786, d=21, episode_length=16, indir='test_normalized', outfile='test_eval.csv'):
+    def evaluate(self, theta=8.86349, shift=0.5, alpha_scale=1e4, d=21, episode_length=16, indir='test_normalized', outfile='test_eval.csv', write_header=0):
         """
         Main evaluation function
 
@@ -606,6 +606,8 @@ class actor_critic:
         """
         # Fix policy by setting parameter
         self.theta = theta
+        self.shift = shift
+        self.alpha_scale = alpha_scale
         self.d = d
         
         path_to_dir = os.getcwd() + '/' + indir
@@ -659,30 +661,15 @@ class actor_critic:
         mean_l1_mean = np.mean(array_l1_mean)
         std_l1_mean = np.std(array_l1_mean)
         mean_JSD_final = np.mean(array_JSD_final)
+        std_JSD_final = np.std(array_JSD_final)
         mean_JSD_mean = np.mean(array_JSD_mean)
+        std_JSD_mean = np.std(array_JSD_mean)
 
-        with open(outfile, 'ab') as f:
-            np.savetxt(f, np.array(['theta = %f' % self.theta]), fmt='%s')
-            np.savetxt(f, np.array(['array_l1_final']), fmt='%s')
-            np.savetxt(f, np.array([mean_l1_final]), fmt='%.3e')
-            np.savetxt(f, np.array([std_l1_final]), fmt='%.3e')            
-            np.savetxt(f, array_l1_final.reshape(1, num_test_trajectories), delimiter=',', fmt='%.3e')
-            np.savetxt(f, np.array(['array_l1_mean']), fmt='%s')
-            np.savetxt(f, np.array([mean_l1_mean]), fmt='%.3e')
-            np.savetxt(f, np.array([std_l1_mean]), fmt='%.3e')            
-            np.savetxt(f, array_l1_mean.reshape(1, num_test_trajectories), delimiter=',', fmt='%.3e')
-            np.savetxt(f, np.array(['array_JSD_final']), fmt='%s')
-            np.savetxt(f, np.array([mean_JSD_final]), fmt='%.3e')
-            np.savetxt(f, array_JSD_final.reshape(1, num_test_trajectories), delimiter=',', fmt='%.3e')
-            np.savetxt(f, np.array(['array_JSD_mean']), fmt='%s')
-            np.savetxt(f, np.array([mean_JSD_mean]), fmt='%.3e')
-            np.savetxt(f, array_JSD_mean.reshape(1, num_test_trajectories), delimiter=',', fmt='%.3e')
+        with open(outfile, 'a') as f:
+            if write_header:
+                f.write('theta,shift,alpha_scale,mean_l1_final,std_l1_final,mean_l1_mean,std_l1_mean,mean_JSD_final,std_JSD_final,mean_JSD_mean,std_JSD_mean\n')
+            f.write("%f,%f,%f,%.3e,%.3e,%.3e,%.3e,%.3e,%.3e,%.3e,%.3e\n" % (theta, shift, alpha_scale, mean_l1_final, std_l1_final, mean_l1_mean, std_l1_mean, mean_JSD_final, std_JSD_final, mean_JSD_mean, std_JSD_mean))
 
-        print("mat_trajectory\n", mat_trajectory)
-        print("array_l1_final\n", array_l1_final)
-        print("array_l1_mean\n", array_l1_mean)
-        print("array_JSD_final\n", array_JSD_final)
-        print("array_JSD_mean\n", array_JSD_mean)
 
 
     def visualize(self, theta=8.86349, d=21, topic=0, dir_train='train_normalized', train_start=1, train_end=27, dir_test='test_normalized', test_start=27, test_end=38, save_plot=0, outfile='plots/mfg_topic0_theta8p86_s0p5_alpha1e4_m5d9.pdf'):
