@@ -308,6 +308,7 @@ class var():
         mean_l1_final = np.mean(array_l1_final)
         std_l1_final = np.std(array_l1_final)
         mean_JSD_final = np.mean(array_JSD_final)
+        std_JSD_final = np.std(array_JSD_final)
         print(array_l1_final)
         print(array_JSD_final)
         print(mean_l1_final)
@@ -317,6 +318,7 @@ class var():
         mean_l1_mean = np.mean(array_l1_mean)
         std_l1_mean = np.std(array_l1_mean)
         mean_JSD_mean = np.mean(array_JSD_mean)
+        std_JSD_mean = np.std(array_JSD_mean)
         print(mean_l1_mean)
         print(mean_JSD_mean)        
 
@@ -331,9 +333,11 @@ class var():
             np.savetxt(f, array_l1_mean.reshape(1, num_trajectories), delimiter=',', fmt='%.3e')
             np.savetxt(f, np.array(['array_JSD_final']), fmt='%s')
             np.savetxt(f, np.array([mean_JSD_final]), fmt='%.3e')
+            np.savetxt(f, np.array([std_JSD_final]), fmt='%.3e')
             np.savetxt(f, array_JSD_final.reshape(1, num_trajectories), delimiter=',', fmt='%.3e')
             np.savetxt(f, np.array(['array_JSD_mean']), fmt='%s')
             np.savetxt(f, np.array([mean_JSD_mean]), fmt='%.3e')
+            np.savetxt(f, np.array([std_JSD_mean]), fmt='%.3e')
             np.savetxt(f, array_JSD_mean.reshape(1, num_trajectories), delimiter=',', fmt='%.3e')
 
 
