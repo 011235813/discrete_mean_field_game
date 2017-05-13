@@ -22,7 +22,7 @@ warnings.filterwarnings('error')
 
 class actor_critic:
 
-    def __init__(self, theta=10, shift=0, alpha_scale=100, d=21):
+    def __init__(self, theta=8.86349, shift=0.16, alpha_scale=12000, d=21):
 
         # initialize theta
         self.theta = theta
@@ -671,16 +671,18 @@ class actor_critic:
             f.write("%f,%f,%f,%.3e,%.3e,%.3e,%.3e,%.3e,%.3e,%.3e,%.3e\n" % (theta, shift, alpha_scale, mean_l1_final, std_l1_final, mean_l1_mean, std_l1_mean, mean_JSD_final, std_JSD_final, mean_JSD_mean, std_JSD_mean))
 
 
-    def gridsearch(self, theta, shift_range, alpha_range):
+    def gridsearch(self, theta_range, shift_range, alpha_range):
         """
         Arguments:
+        theta_range - array
         shift_range - array
-        alpha_range - 
+        alpha_range - array
         """
-        for shift in shift_range:
-            for alpha_scale in alpha_range:
-                print("Shift %f, alpha %d" % (shift, alpha_scale))
-                self.evaluate(theta, shift, alpha_scale, write_header=0)
+        for theta in theta_range:
+            for shift in shift_range:
+                for alpha_scale in alpha_range:
+                    print("Theta %f, shift %f, alpha %d" % (theta, shift, alpha_scale))
+                    self.evaluate(theta, shift, alpha_scale, write_header=0)
 
 
     def visualize(self, theta=8.86349, d=21, topic=0, dir_train='train_normalized', train_start=1, train_end=27, dir_test='test_normalized', test_start=27, test_end=38, save_plot=0, outfile='plots/mfg_topic0_theta8p86_s0p5_alpha1e4_m5d9.pdf'):
@@ -805,7 +807,7 @@ class actor_critic:
         
 
 if __name__ == "__main__":
-    ac = actor_critic(theta=10, shift=0.5, alpha_scale=100000, d=21)
+    ac = actor_critic(theta=8.86349, shift=0.16, alpha_scale=12000, d=21)
     t_start = time.time()
     ac.train(num_episodes=100000, gamma=1, lr_critic=0.1, lr_actor=0.1, consecutive=100, write_file=1, write_all=0)
     t_end = time.time()
