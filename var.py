@@ -39,7 +39,7 @@ class var():
 #        self.results = self.model.fit(2)
 
 
-    def read_data(self, train='train_normalized', train_start=1, train_end=27, test='test_normalized', test_start=27, test_end=38):
+    def read_data(self, train='train_normalized2', train_start=1, train_end=35, test='test_normalized2', test_start=36, test_end=45):
         """
         Arguments:
         train - directory that holds normalized training data
@@ -54,7 +54,7 @@ class var():
         list_df = []
         idx = 0
         # for filename in os.listdir(train):
-        for num_day in range(train_start, train_end):
+        for num_day in range(train_start, train_end+1):
             filename = "trend_distribution_day%d_reordered.csv" % num_day
             print(filename)
             path_to_file = train + '/' + filename
@@ -70,7 +70,7 @@ class var():
         print("Reading test files")
         list_df = []
         # for filename in os.listdir(test):
-        for num_day in range(test_start, test_end):
+        for num_day in range(test_start, test_end+1):
             filename = "trend_distribution_day%d_reordered.csv" % num_day
             print(filename)
             path_to_file = test + '/' + filename
