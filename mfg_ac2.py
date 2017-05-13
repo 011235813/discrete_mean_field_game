@@ -457,7 +457,7 @@ class actor_critic:
         """
 
         # initialize collection of start states
-        self.init_pi0(path_to_dir=os.getcwd()+'/train_normalized')
+        self.init_pi0(path_to_dir=os.getcwd()+'/train_normalized2')
         self.num_start_samples = self.mat_pi0.shape[0] # number of rows
 
         list_cost = []
@@ -685,7 +685,7 @@ class actor_critic:
                     self.evaluate(theta, shift, alpha_scale, write_header=0)
 
 
-    def visualize(self, theta=8.86349, d=21, topic=0, dir_train='train_normalized', train_start=1, train_end=27, dir_test='test_normalized', test_start=27, test_end=38, save_plot=0, outfile='plots/mfg_topic0_theta8p86_s0p5_alpha1e4_m5d9.pdf'):
+    def visualize(self, theta=8.86349, d=21, topic=0, dir_train='train_normalized', train_start=1, train_end=26, dir_test='test_normalized', test_start=27, test_end=37, save_plot=0, outfile='plots/mfg_topic0_theta8p86_s0p5_alpha1e4_m5d9.pdf'):
         """
         Run MFG policy forward using initial distributions across both training and test set,
         and plot trajectory of topic against all measurement data.
@@ -700,7 +700,7 @@ class actor_critic:
         print("Generating trajectory from train data")
         list_df = []
         idx = 0
-        for num_day in range(train_start, train_end):
+        for num_day in range(train_start, train_end+1):
             # Read initial distribution pi0
             pi0 = np.array(df_train.iloc[(num_day-1)*16])
 
@@ -717,7 +717,7 @@ class actor_critic:
         # Generate trajectory using policy on test data
         print("Generating trajectory from test data")
         list_df = []
-        for num_day in range(test_start, test_end):
+        for num_day in range(test_start, test_end+1):
             # Read initial distribution
             pi0 = np.array(df_test.iloc[(num_day-test_start)*16])
             # Generate entire trajectory using policy
@@ -750,7 +750,7 @@ class actor_critic:
             plt.show()
 
 
-    def visualize_test(self, theta=8.86349, d=21, topic=0, dir_train='train_normalized', train_start=1, train_end=27, dir_test='test_normalized', test_start=27, test_end=38, save_plot=0, outfile='plots/mfg_var_topic0_theta8p86_s0p5_alpha1e4_m5d11.pdf'):
+    def visualize_test(self, theta=8.86349, d=21, topic=0, dir_train='train_normalized', train_start=1, train_end=26, dir_test='test_normalized', test_start=27, test_end=37, save_plot=0, outfile='plots/mfg_var_topic0_theta8p86_s0p5_alpha1e4_m5d11.pdf'):
         """
         Produce plot of trajectory of raw test data, 
         MFG generated data, and time series prediction (from var.py)
@@ -765,7 +765,7 @@ class actor_critic:
         print("Generating MFG trajectory from test data")
         idx = 0
         list_df = []
-        for num_day in range(test_start, test_end):
+        for num_day in range(test_start, test_end+1):
             # Read initial distribution
             pi0 = np.array(df_test.iloc[(num_day-test_start)*16])
             # Generate entire trajectory using policy
@@ -780,7 +780,7 @@ class actor_critic:
         # Train VAR and get forecast
         print("Running VAR to get forecast")
         self.var.train()
-        df_future_var = self.var.forecast(num_prior=int(16*(train_end-train_start)), steps=int(16*(test_end-test_start)), topic=topic, plot=0, show_plot=0)
+        df_future_var = self.var.forecast(num_prior=int(16*(train_end-train_start+1)), steps=int(16*(test_end-test_start+1)), topic=topic, plot=0, show_plot=0)
 
         array_x_test = np.arange(0, len(self.df_test_generated.index))
 
