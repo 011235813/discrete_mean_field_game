@@ -673,7 +673,7 @@ class actor_critic:
         return mean_l1_final, mean_l1_mean, mean_JSD_final, mean_JSD_mean
 
 
-    def gridsearch(self, theta_range, shift_range, alpha_range):
+    def gridsearch(self, theta_range, shift_range, alpha_range, indir, outfile):
         """
         Arguments:
         theta_range - array
@@ -685,7 +685,7 @@ class actor_critic:
             for shift in shift_range:
                 for alpha_scale in alpha_range:
                     print("Theta %f, shift %f, alpha %d" % (theta, shift, alpha_scale))
-                    result = self.evaluate(theta, shift, alpha_scale, write_header=0)
+                    result = self.evaluate(theta, shift, alpha_scale, indir=indir, outfile=outfile, write_header=0)
                     for idx in range(4):
                         if result[idx] <= list_tuples[idx][0]:
                             list_tuples[idx] = [result[idx], theta, shift, alpha_scale]
