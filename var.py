@@ -113,11 +113,66 @@ class var():
         print(dfoutput)
 
         
-    def train(self, max_lag=15):
+    def train(self, max_lag, df_train):
 
-        self.model = VAR(self.df_train)
+        self.model = VAR(df_train)
 
         self.results = self.model.fit(maxlags=max_lag, ic='aic')
+
+
+    def cross_validation(self, lag_range=range(1,21), validation_size=10, repetitions=5):
+        """
+        Arguments:
+        lag_range - the range of lag values to try
+        validation_size - number of trajectories to use as the validation set
+        """
+        list_error = []
+        num_training_points = int(len(self.df_train.index) / 16)
+        list_choices = range(num_training_points)
+        num_selected = num_training_points - validation_size
+        # For each lag value
+        for lag in lag_range:
+            avg_error = 0
+            # Repeat for repetition times
+            for rep in range(0, repetitions):
+                # Randomly split into training set and validation set
+                selected = np.random.choice(list_choices, num_selected, replace=False)
+                the_rest = [x for x in list_choices if x not in selected]
+                list_temp = []
+                for point in selected:
+                    list_temp.append( self.df_train[point:point+16] )
+                df_selected = pd.concat(list_temp)
+                list_temp = []
+                for point in the_rest:
+                    list_temp.append( self.df_train[point:point+16] )
+                df_validation = pd.concat(list_temp)
+
+                # Relabel indices to have increasing time order
+                df_selected.index = np.arange(len(df_selected.index))
+                df_selected.index = pd.to_datetime(df_selected.index, unit="D")
+                df_validation.index = np.arange(len(df_selected.index), len(df_selected.index) + 16*validation_size)
+                df_validation.index = pd.to_datetime(df_validation.index, unit="D")
+                # Train
+                self.train(max_lag=lag, df_train=df_selected)
+
+                # Test on the validation set and accumulate error                
+                avg_error += self.validation(validation_size*16, df_selected, df_validation)
+
+            # Average error over repetitions
+            avg_error = avg_error / repetitions
+            print("Lag %d. avg_error" % lag, avg_error)
+            # Record avg error for this lag value
+            list_error.append(avg_error)
+
+        print("Min error is", np.min(list_error))
+        print("Best lag value is", lag_range[np.argmin(list_error)])
+        f = open('var_cross_val.csv', 'a')
+        s = ','.join(map(str, lag_range))
+        s += '\n'
+        f.write(s)
+        s = ','.join(map(str, list_error))
+        s += '\n'
+        f.write(s)
 
 
     def plot(self, topic, lag):
@@ -212,6 +267,42 @@ class var():
         print(mean_l1)
         print(mean_JSD)
         
+
+    def validation(self, steps, df_selected, df_validation):
+        """
+        Arguments:
+        steps - number of future points to generate
+        df_selected - subset of self.df_train selected for training
+        df_validation - subset of self.df_train not selected for training
+
+        Return:
+        mean_JSD_mean - mean over all validation days of the mean JSD over all hours
+        """
+        num_previous = len(df_selected.index)
+        lag_order = self.results.k_ar
+        future = self.results.forecast(df_selected.values[-lag_order:], steps)
+        df_future = pd.DataFrame(future)
+        df_future.index = np.arange(num_previous, num_previous+steps)
+        df_future.index = pd.to_datetime(df_future.index, unit="D")
+
+        len_validation = len(df_validation.index)
+        num_trajectories = int(len_validation / 16)
+        array_JSD_mean = np.zeros(num_trajectories)
+        idx_day = 0
+        while idx_day < num_trajectories:
+            idx_hour = 0
+            jsd = 0
+            while idx_hour < 16:
+                idx = 16*idx_day + idx_hour
+                jsd += self.JSD( df_validation.ix[idx], df_future.ix[idx] )
+                idx_hour += 1
+
+            array_JSD_mean[idx_day] = jsd/16
+            idx_day += 1
+
+        mean_JSD_mean = np.mean(array_JSD_mean)
+        return mean_JSD_mean
+
 
     def forecast(self, num_prior=416, steps=176, topic=0, plot=1, show_plot=1):
         """
@@ -347,7 +438,7 @@ if __name__ == "__main__":
     print("reading data")
     exp.read_data()
     print("training")
-    exp.train()
+    exp.train(max_lag=15, df_train=self.df_train)
     print("evaluate training performance")
     exp.evaluate_train()
     print("forecasting")
