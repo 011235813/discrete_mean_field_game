@@ -757,7 +757,7 @@ class actor_critic:
             plt.show()
 
 
-    def visualize_test(self, theta=8.86349, d=21, topic=0, dir_train='train_normalized', train_start=1, train_end=26, dir_test='test_normalized', test_start=27, test_end=37, save_plot=0, outfile='plots/mfg_var_topic0_theta8p86_s0p5_alpha1e4_m5d11.pdf'):
+    def visualize_test(self, theta=9.99, d=21, topic=0, dir_train='train_normalized2', train_start=1, train_end=35, dir_test='test_normalized2', test_start=36, test_end=45, save_plot=0, outfile='plots/mfg_var_0_9p99_0p02_2e4_22_m5d15.pdf'):
         """
         Produce plot of trajectory of raw test data, 
         MFG generated data, and time series prediction (from var.py)
@@ -789,7 +789,8 @@ class actor_critic:
         self.var.train(22, self.var.df_train)
         df_future_var = self.var.forecast(num_prior=int(16*(train_end-train_start+1)), steps=int(16*(test_end-test_start+1)), topic=topic, plot=0, show_plot=0)
 
-        array_x_test = np.arange(0, len(self.df_test_generated.index))
+        #array_x_test = np.arange(0, len(self.df_test_generated.index))
+        array_x_test = np.arange(0, len(self.df_test_generated.index))/16.0
 
         #fig = plt.figure()
         fig, ax = plt.subplots()
@@ -800,7 +801,8 @@ class actor_critic:
         plt.plot(array_x_test, self.df_test_generated[topic], color='g', linestyle='--', label='MFG (test)')
         plt.plot(array_x_test, df_future_var[topic], color='b', linestyle=':', label="VAR (test)")
         plt.ylabel('Topic %d popularity' % topic)
-        plt.xlabel('Time steps (hrs)')
+        plt.xlabel('Day')
+        plt.xticks(np.arange(0,10+1,1))
         plt.legend(loc='best', prop={'size':14})
         plt.title("Topic %d measurement and predictions" % topic)
 
