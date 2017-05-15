@@ -786,7 +786,7 @@ class actor_critic:
 
         # Train VAR and get forecast
         print("Running VAR to get forecast")
-        self.var.train()
+        self.var.train(22, self.var.df_train)
         df_future_var = self.var.forecast(num_prior=int(16*(train_end-train_start+1)), steps=int(16*(test_end-test_start+1)), topic=topic, plot=0, show_plot=0)
 
         array_x_test = np.arange(0, len(self.df_test_generated.index))
