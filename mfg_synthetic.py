@@ -812,19 +812,105 @@ class actor_critic:
         return diff_mean, diff_std
 
 
+    def evaluate_synthetic_JSD(self, day_first=1, day_last=26, verbose=0):
+        """
+        Evaluates how close P_{ij}^n is to
+        1. V_j^n - V_i^n , if i \neq j
+        2. - \sum_{j: j \neq i} (V_j^n - V_i^n) + 1 , if i == j
+
+        Argument:
+        day_first - first training file
+        day_last - last training file
+        verbose - obvious
+
+        Return:
+        diff_mean
+        diff_std
+
+        For each day, for each hour, sum up the 
+        JSD between P_i and the value computed using the value function
+        over all i
+        This gives an array of values, one value for each hour, for all hours and all days.
+        Report the mean and standard deviation of this array.
+
+        Requires self.theta to be set prior to running this. 
+        """
+
+        list_diff = []
+        # For each initial distribution, use policy to generate trajectory
+        # pi^0, P^0, pi^1, P^1,...pi^N
+        for day in range(day_first-1, day_last):
+            # Get initial distribution
+            pi = self.mat_pi0[day, :]
+            # Get sequence of distributions pi^n and actions P^n
+            mat_trajectory, array_actions = self.generate_trajectory(pi, total_hours=16)
+
+            # Use backward equation to get V^n_i for all n, for all i
+            # num_topic rows, 16 columns, each column is V^n for that hour
+            mat_V = np.zeros([self.d, 16]) 
+            # From 14 to 0, inclusive
+            for n in range(14,-1,-1):
+                vec_reward = self.calc_reward_vector( array_actions[n] )
+                # V^n = r + P * V^{n+1}
+                mat_V[: , n:n+1] = vec_reward.reshape(self.d, 1) + array_actions[n].dot( mat_V[:, n+1:n+2] )
+                
+            # Go through all P matrices for this day,
+            # get sum of JSD between P_i and the row computed
+            # using the value function, for all row i
+            for n in range(0,15):
+                diff = 0
+                # Go through all rows
+                for idx_i in range(0, self.d):
+                    P_i = array_actions[n, idx_i]
+                    # Compute the row for comparison
+                    row_compare = np.zeros(self.d)
+                    for idx_j in range(0, self.d):
+                        if idx_i == idx_j:
+                            # (-\sum_{j: j != i} V_j - V_i) + 1
+                            row_compare[idx_j] = 1 - (np.sum(mat_V[:, n]) - self.d*mat_V[idx_i, n])
+                        else:
+                            # V_j - V_i
+                            row_compare[idx_j] = mat_V[idx_j, n] - mat_V[idx_i, n]
+                    diff += self.JSD(P_i, row_compare)
+                    if diff == np.inf:
+                        break
+                list_diff.append(diff)
+#            print(P_i)
+#            print(row_compare)
+#        print(list_diff)
+        diff_mean = np.mean(list_diff)
+        diff_std = np.std(list_diff)
+
+        if verbose:
+            print("Mean over all hours", diff_mean)
+            print("Standard deviation", diff_std)
+                    
+            print("P_01 at time 0 =", array_actions[0,0,1])
+            print("V_1 - V_0 at time 0 =", (mat_V[1,0] - mat_V[0,0]))
+    
+            print("P_00 at time 0 =", array_actions[0,0,0])
+            print("value =", (1 - (np.sum(mat_V[:,0]) - mat_V[0,0] - (self.d-1)*mat_V[0,0])))
+        return diff_mean, diff_std    
+
+
 if __name__ == "__main__":
     # Try to find a good theta (current best is 2.6)
-    f = open('synthetic.csv', 'a')
-    f.write("Theta,diff_mean,diff_std\n")
+    with open("synthetic.csv", 'a') as f:
+        f.write("Theta,shift,alpha_scale,diff_mean,diff_std\n")
     
-    for theta in np.arange(2.0, 3.0, 0.01):
-        print("Theta", theta)
-        ac = actor_critic(theta=theta, shift=0, alpha_scale=10000, d=21)
-        #ac.train(num_episodes=10000, gamma=1, constant=0, lr_critic=0.1, lr_actor=0.01, consecutive=100, write_file=1)
-
-        ac.init_pi0('train_normalized')
+    for shift in np.arange(0, 0.02, 0.02):
+    # for theta in np.arange(2.0, 3.0, 0.01):
+        #print("Theta", theta)
+        print("Shift", shift)
+        ac = actor_critic(theta=5.0, shift=shift, alpha_scale=10000, d=21)
+        #ac = actor_critic(theta=theta, shift=0, alpha_scale=10000, d=21)
+        try:
+            ac.train(num_episodes=4000, gamma=1, constant=1, lr_critic=0.1, lr_actor=0.001, consecutive=100, write_file=0)
+        except:
+            pass
+        print("Theta found is", ac.theta)
+        #ac.init_pi0('train_normalized')
 
         diff_mean, diff_std = ac.evaluate_synthetic(day_first=1, day_last=26)
-        f.write("%e,%e,%e\n" % (theta, diff_mean, diff_std))
-
-    f.close()
+        with open("synthetic.csv", 'a') as f:
+            f.write("%e,%e,%e,%e\n" % (shift, theta, diff_mean, diff_std))
