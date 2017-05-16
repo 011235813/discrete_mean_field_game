@@ -898,7 +898,7 @@ if __name__ == "__main__":
     with open("synthetic.csv", 'a') as f:
         f.write("Theta,shift,alpha_scale,diff_mean,diff_std\n")
     
-    for shift in np.arange(0, 0.02, 0.02):
+    for shift in np.arange(0, 0.52, 0.02):
     # for theta in np.arange(2.0, 3.0, 0.01):
         #print("Theta", theta)
         print("Shift", shift)
