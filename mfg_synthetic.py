@@ -913,4 +913,4 @@ if __name__ == "__main__":
 
         diff_mean, diff_std = ac.evaluate_synthetic(day_first=1, day_last=26)
         with open("synthetic.csv", 'a') as f:
-            f.write("%e,%e,%e,%e\n" % (shift, theta, diff_mean, diff_std))
+            f.write("%e,%e,%e,%e\n" % (shift, ac.theta, diff_mean, diff_std))
