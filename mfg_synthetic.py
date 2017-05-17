@@ -536,8 +536,8 @@ class actor_critic:
         """
 
         # Replace all zeros by 1e-100
-        P[P==0] = 1e-100
-        Q[Q==0] = 1e-100
+        P[P<=0] = 1e-100
+        Q[Q<=0] = 1e-100
 
         P_normed = P / norm(P, ord=1)
         Q_normed = Q / norm(Q, ord=1)
@@ -872,8 +872,8 @@ class actor_critic:
                             # V_j - V_i
                             row_compare[idx_j] = mat_V[idx_j, n] - mat_V[idx_i, n]
                     diff += self.JSD(P_i, row_compare)
-                    if diff == np.inf:
-                        break
+#                    if diff == np.inf:
+#                        break
                 list_diff.append(diff)
 #            print(P_i)
 #            print(row_compare)
@@ -896,21 +896,24 @@ class actor_critic:
 if __name__ == "__main__":
     # Try to find a good theta (current best is 2.6)
     with open("synthetic.csv", 'a') as f:
-        f.write("Theta,shift,alpha_scale,diff_mean,diff_std\n")
+        f.write("Shift,theta_initial,theta_final,diff_mean,diff_std\n")
     
-    for shift in np.arange(0, 0.52, 0.02):
-    # for theta in np.arange(2.0, 3.0, 0.01):
-        #print("Theta", theta)
-        print("Shift", shift)
-        ac = actor_critic(theta=5.0, shift=shift, alpha_scale=10000, d=21)
+    for shift in np.arange(0, 0.04, 0.02):
+        for theta_initial in np.arange(0, 5.0, 0.05):
+            print("Theta initial", theta_initial)
+            print("Shift", shift)
+            ac = actor_critic(theta=theta_initial, shift=shift, alpha_scale=10000, d=21)
         #ac = actor_critic(theta=theta, shift=0, alpha_scale=10000, d=21)
-        try:
-            ac.train(num_episodes=4000, gamma=1, constant=1, lr_critic=0.1, lr_actor=0.001, consecutive=100, write_file=0)
-        except:
-            pass
-        print("Theta found is", ac.theta)
+            try:
+                ac.train(num_episodes=1000, gamma=1, constant=1, lr_critic=0.1, lr_actor=0.001, consecutive=100, write_file=0)
+            except:
+                pass
+            print("Theta final is", ac.theta)
         #ac.init_pi0('train_normalized')
-
-        diff_mean, diff_std = ac.evaluate_synthetic(day_first=1, day_last=26)
-        with open("synthetic.csv", 'a') as f:
-            f.write("%e,%e,%e,%e\n" % (shift, ac.theta, diff_mean, diff_std))
+            try:
+                diff_mean, diff_std = ac.evaluate_synthetic_JSD(day_first=1, day_last=26)
+            except:
+                diff_mean = 900
+                diff_std = 900
+            with open("synthetic.csv", 'a') as f:
+                f.write("%.3f,%.3f,%.3f,%.3f,%.3f\n" % (shift, theta_initial, ac.theta, diff_mean, diff_std))
