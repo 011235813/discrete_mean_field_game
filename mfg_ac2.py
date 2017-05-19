@@ -757,7 +757,13 @@ class actor_critic:
             plt.show()
 
 
-    def visualize_test(self, theta=9.99, d=21, topic=0, dir_train='train_normalized2', train_start=1, train_end=35, dir_test='test_normalized2', test_start=36, test_end=45, save_plot=0, outfile='plots/mfg_var_0_9p99_0p02_2e4_22_m5d15.pdf'):
+    def read_rnn(self, path_to_file='rnn_normalized/trajectories_rnn.txt'):
+        df = pd.read_csv(path_to_file, sep=' ', header=None, names=range(self.d), usecols=range(self.d), dtype=np.float32)
+        df.index = pd.to_datetime(np.arange(0,160), unit="D")
+        self.df_rnn = df
+
+        
+    def visualize_test(self, theta=9.99, d=21, topic=0, dir_train='train_normalized2', train_start=1, train_end=35, dir_test='test_normalized2', test_start=36, test_end=45, mfg_and_rnn=0, log_scale=0,  save_plot=0, outfile='plots/mfg_var_0_9p99_0p02_2e4_22_m5d15.pdf'):
         """
         Produce plot of trajectory of raw test data, 
         MFG generated data, and time series prediction (from var.py)
@@ -789,6 +795,9 @@ class actor_critic:
         self.var.train(22, self.var.df_train)
         df_future_var = self.var.forecast(num_prior=int(16*(train_end-train_start+1)), steps=int(16*(test_end-test_start+1)), topic=topic, plot=0, show_plot=0)
 
+        # Get RNN predictions
+        self.read_rnn()
+
         #array_x_test = np.arange(0, len(self.df_test_generated.index))
         array_x_test = np.arange(0, len(self.df_test_generated.index))/16.0
 
@@ -797,9 +806,16 @@ class actor_critic:
         for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] + ax.get_xticklabels() + ax.get_yticklabels()):
             item.set_fontsize(14)
             
-        plt.plot(array_x_test, df_test[topic], color='k', linestyle='-', label='test data')
-        plt.plot(array_x_test, self.df_test_generated[topic], color='g', linestyle='--', label='MFG (test)')
-        plt.plot(array_x_test, df_future_var[topic], color='b', linestyle=':', label="VAR (test)")
+        if mfg_and_rnn == 0:
+            plt.plot(array_x_test, df_test[topic], color='k', linestyle='-', label='test data')
+            plt.plot(array_x_test, self.df_test_generated[topic], color='g', linestyle='--', label='MFG (test)')
+            plt.plot(array_x_test, df_future_var[topic], color='b', linestyle=':', label="VAR (test)")
+        else:
+            plt.plot(array_x_test, df_test[topic], color='k', linestyle='-', label='test data')
+            plt.plot(array_x_test, self.df_test_generated[topic], color='g', linestyle='--', label='MFG (test)')
+            plt.plot(array_x_test, self.df_rnn[topic], color='m', linestyle='-.', label='RNN (test)')
+            if log_scale:
+                ax.set_yscale('log')
         plt.ylabel('Topic %d popularity' % topic)
         plt.xlabel('Day')
         plt.xticks(np.arange(0,10+1,1))
