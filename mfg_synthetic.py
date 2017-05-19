@@ -812,15 +812,17 @@ class actor_critic:
         return diff_mean, diff_std
 
 
-    def evaluate_synthetic_JSD(self, day_first=1, day_last=26, verbose=0):
+    def evaluate_synthetic_JSD(self, day_first=1, day_last=26, write_file=0, filename='synthetic_log.csv', verbose=0):
         """
-        Evaluates how close P_{ij}^n is to
+        Evaluates how close P_i^n is to the row constructed from
         1. V_j^n - V_i^n , if i \neq j
         2. - \sum_{j: j \neq i} (V_j^n - V_i^n) + 1 , if i == j
 
         Argument:
         day_first - first training file
         day_last - last training file
+        write_file - set to 1 to write file
+        filename - name of output file
         verbose - obvious
 
         Return:
@@ -872,6 +874,10 @@ class actor_critic:
                             # V_j - V_i
                             row_compare[idx_j] = mat_V[idx_j, n] - mat_V[idx_i, n]
                     diff += self.JSD(P_i, row_compare)
+                if write_file:
+                    self.train_log(P_i, filename, "%.3e")
+                    self.train_log(row_compare, filename, "%.3e")
+                    self.train_log(np.array([0]), filename, "%d") # line seperator
 #                    if diff == np.inf:
 #                        break
                 list_diff.append(diff)
