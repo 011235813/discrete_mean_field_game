@@ -109,21 +109,28 @@ class actor_critic:
             f.close()
 
 
-    def normalize(self, indir='train_reordered', outdir='train_normalized'):
+    def normalize(self, indir='train_round2', outdir='train_normalized_round2', header=True):
         """
-        Normalize all rows of data
+        Reads files from indir, normalize all rows of data, and writes to outdir.
+        If header = True, then skips the first line
         """
         path_to_dir = os.getcwd() + '/' + indir
         path_to_outdir = os.getcwd() + '/' + outdir
         for filename in os.listdir(path_to_dir):
             path_to_file = path_to_dir + '/' + filename
             with open(path_to_file, 'r') as f:
+                if header:
+                    # skip over first line
+                    f.readline()
+                # read everything else into a matrix
                 matrix = np.loadtxt(f, delimiter=',')
             num_rows = matrix.shape[0]
-            matrix = matrix / np.sum(matrix, axis=1).reshape(num_rows,1)
+            # normalize
+            matrix = matrix / np.sum(matrix, axis=1, keepdims=True)
+            # write to space-separated file in outdir with same filename
             path_to_outfile = path_to_outdir + '/' + filename
             with open(path_to_outfile, 'wb') as f:
-                np.savetxt(f, matrix, fmt='%.3e')
+                np.savetxt(f, matrix, fmt='%.3e', delimiter=' ')
 
 
     def get_max_nonzero(self, indir):
@@ -173,16 +180,17 @@ class actor_critic:
         pi^0_1, ... , pi^0_d
         where d is a fixed constant across all files
         """
+        # will be list of lists
         list_pi0 = []
-        # for filename in os.listdir(path_to_dir):
         num_files = len(os.listdir(path_to_dir))
+
         for num_day in range(1, 1+num_files):
-            filename = "trend_distribution_day%d_reordered.csv" % num_day
+            filename = "trend_distribution_day%d.csv" % num_day
             path_to_file = path_to_dir + '/' + filename
             f = open(path_to_file, 'r')
             list_lines = f.readlines()
             f.close()
-            # Need to decide whether or not to include the null topic at index 0
+            # Take first line, split by ' ', map to float, convert to list and append to list_pi0
             list_pi0.append( list(map(float, list_lines[0].strip().split(' ')))[0:self.d] )
             if verbose:
                 print(filename)
@@ -190,10 +198,9 @@ class actor_critic:
         num_rows = len(list_pi0)
         num_cols = len(list_pi0[0])
 
+        # Convert to np matrix
         self.mat_pi0 = np.zeros([num_rows, num_cols])
         for i in range(len(list_pi0)):
-            # total = np.sum(list_pi0[i])
-            # self.mat_pi0[i] = list(map(lambda x: x/total, list_pi0[i]))
             self.mat_pi0[i] = list_pi0[i]
         
 
@@ -208,13 +215,11 @@ class actor_critic:
         self.mat_alpha = np.zeros([self.d, self.d])
         # Construct all derivatives
         self.mat_alpha_deriv = np.zeros([self.d, self.d])
-        # Create tensor phi(i,j,pi) for storing all phi matrices for later use
-        # self.tensor_phi = np.zeros([self.d,self.d,self.dim_theta])
 
         # temp_{ij} = pi_j - pi_i
         # alpha^i_j = ln ( 1 + exp[ theta ( (pi_j - pi_i) - shift ) ] )
-        mat1 = np.repeat(pi.reshape(1, self.d), self.d, 0)
-        mat2 = np.repeat(pi.reshape(self.d, 1), self.d, 1)
+        mat1 = np.repeat(pi.reshape(1, self.d), self.d, 0) # all rows same
+        mat2 = np.repeat(pi.reshape(self.d, 1), self.d, 1) # all columns same
         temp = mat1 - mat2
         self.mat_alpha = np.log( 1 + np.exp( self.theta * (temp - self.shift)))
         
@@ -245,43 +250,35 @@ class actor_critic:
         return P
 
 
-    def calc_cost(self, P, pi, d):
+    def calc_reward(self, P, pi, d):
         """
         Input:
         P - transition matrix
         pi - population distribution as row vector
         d - should be self.d always, except during testing
 
-        Using c_{ij}(pi, P_i) = P_{ij}(pi_i - pi_j), reward is
-        R = \sum_i pi_i \sum_j P_{ij} c_{ij}(pi, P_i)
+        Using r_{ij}(pi, P_i) = P_{ij}(pi_j - pi_i), reward is
+        R = \sum_i pi_i \sum_j P_{ij} r_{ij}(pi, P_i)
         = < pi , v >
         where v = v1 - v2
-        where v1 is vector [ \sum_j P_{1j}^2 pi_1 , ... , \sum_j P_{dj}^2 pi_d ]
-        so v1 = (P element-wise squared)(all ones) element-wise product with pi
-        and v2 is vector [ \sum_j P_{1j}^2 pi_j , ... , \sum_j P_{dj}^2 pi_j ]
-        so v2 = (P element-wise squared)pi
+        where v1 is vector [ \sum_j P_{1j}^2 pi_j , ... , \sum_j P_{dj}^2 pi_j ]
+        so v1 = (P element-wise squared)pi
+        and v2 is vector [ \sum_j P_{1j}^2 pi_1 , ... , \sum_j P_{dj}^2 pi_d ]
+        so v2 = (P element-wise squared)(all ones) element-wise product with pi
         """
         # This vectorized version is 3x faster than the version with one for loop
         P_squared = P * P # element-wise product
-        # (P_squared product with all_ones) element-wise product with pi as column vector
-        v1 = P_squared.dot(np.ones([d,1])) * pi.reshape(d, 1)
         # P_squared product with pi as column vector
-        v2 = P_squared.dot(pi.reshape(d, 1))
+        v1 = P_squared.dot(pi.reshape(d, 1))
+        # (P_squared product with all_ones) element-wise product with pi as column vector
+        v2 = P_squared.dot(np.ones([d,1])) * pi.reshape(d, 1)
         reward = pi.dot( v1 - v2 )
-
-        # previous version
-#        v = np.zeros([d,1])
-#        for i in range(d):
-#            v1 = P[i, :] * P[i, :]
-#            v2 = pi[i] * np.ones(d) - pi
-#            v[i] = v1.dot(v2)
-#        reward = pi.dot(v)
         
         # This is the direct version, which is much slower for large d
-#        reward = 0
-#        for i in range(d):
-#            for j in range(d):
-#                reward += pi[i] * P[i,j]**2 * (pi[i] - pi[j])
+        # reward = 0
+        # for i in range(d):
+        #     for j in range(d):
+        #         reward += pi[i] * P[i,j]**2 * (pi[j] - pi[i])
         
         return reward
 
@@ -444,14 +441,14 @@ class actor_critic:
         f.close()
     
 
-    def train(self, num_episodes=4000, gamma=1, constant=0, lr_critic=0.1, lr_actor=0.001, consecutive=100, file_theta='results/theta.csv', file_pi='results/pi.csv', file_cost='results/cost.csv', write_file=0, write_all=0):
+    def train(self, num_episodes=4000, gamma=1, constant=0, lr_critic=0.1, lr_actor=0.001, consecutive=100, file_theta='results/theta.csv', file_pi='results/pi.csv', file_reward='results/reward.csv', write_file=0, write_all=0):
         """
         Input:
         1. num_episodes - each episode is 16 steps (9am to 12midnight)
         2. gamma - temporal discount
         3. lr_critic - learning rate for value function parameter update
         4. lr_actor - learning rate for policy parameter update
-        5. consecutive - number of consecutive episodes for each reporting of average cost
+        5. consecutive - number of consecutive episodes for each reporting of average reward
 
         Main actor-critic training procedure that improves theta and w
         """
@@ -460,7 +457,7 @@ class actor_critic:
         self.init_pi0(path_to_dir=os.getcwd()+'/train_normalized2')
         self.num_start_samples = self.mat_pi0.shape[0] # number of rows
 
-        list_cost = []
+        list_reward = []
         for episode in range(num_episodes):
             # print("Episode", episode)
             if write_all:
@@ -474,7 +471,7 @@ class actor_critic:
             # pi = np.array([0.7, 0.09, 0.01, 0.2]) #here for testing
 
             discount = 1
-            total_cost = 0
+            total_reward = 0
             num_steps = 0
 
             # Stop after finishing the iteration when num_steps=15, because
@@ -500,16 +497,16 @@ class actor_critic:
                 # Take action, get pi^{n+1} = P^T pi
                 pi_next = np.transpose(P).dot(pi)
 
-                cost = self.calc_cost(P, pi, self.d)
+                reward = self.calc_reward(P, pi, self.d)
                 
                 # Calculate TD error
                 vec_features_next = self.calc_features(pi_next)
                 vec_features = self.calc_features(pi)
-                # Consider using the terminal condition V^N = 0
-                delta = cost + gamma*(vec_features_next.dot(self.w)) - (vec_features.dot(self.w))
+                # TD error = r + gamma * v(s'; w) - v(s; w)
+                delta = reward + gamma*(vec_features_next.dot(self.w)) - (vec_features.dot(self.w))
 
                 # Update value function parameter
-                # w <- w + alpha * delta * varphi(pi)
+                # w <- w + alpha * TD error * feature vector
                 # still a column vector
                 length = len(vec_features)
                 if constant == 1:
@@ -517,29 +514,30 @@ class actor_critic:
                 else:
                     self.w = self.w + (lr_critic/(episode+1)) * delta * vec_features.reshape(length,1) #here
 
-                # theta update
+                # Update policy parameter
+                # theta <- theta + beta * grad(log(F)) * TD error
                 gradient = self.calc_gradient_vectorized(P, pi)
                 if constant == 1:
-                    self.theta = self.theta - lr_actor * delta * gradient
+                    self.theta = self.theta + lr_actor * delta * gradient
                 else:
-                    self.theta = self.theta - (lr_actor/((episode+1)*np.log(np.log(episode+20)))) * delta * gradient #here
+                    self.theta = self.theta + (lr_actor/((episode+1)*np.log(np.log(episode+20)))) * delta * gradient #here
 
                 discount = discount * gamma
                 pi = pi_next
-                total_cost += cost
+                total_reward += reward
 
-            list_cost.append(total_cost)
+            list_reward.append(total_reward)
 
             if (episode % consecutive == 0):
                 print("Theta\n", self.theta)
                 print("pi\n", pi)
-                cost_avg = sum(list_cost)/consecutive
-                print("Average cost during previous %d episodes: " % consecutive, str(cost_avg))
-                list_cost = []
+                reward_avg = sum(list_reward)/consecutive
+                print("Average reward during previous %d episodes: " % consecutive, str(reward_avg))
+                list_reward = []
                 if write_file:
                     self.train_log(self.theta, file_theta, "%.5e")
                     self.train_log(pi, file_pi, "%.3e")
-                    self.train_log(np.array([cost_avg]), file_cost, "%.3e")
+                    self.train_log(np.array([reward_avg]), file_reward, "%.3e")
 
 
 # ---------------- End training code ---------------- #
