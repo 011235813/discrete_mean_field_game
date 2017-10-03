@@ -185,7 +185,7 @@ class actor_critic:
         num_files = len(os.listdir(path_to_dir))
 
         for num_day in range(1, 1+num_files):
-            filename = "trend_distribution_day%d.csv" % num_day
+            filename = "trend_distribution_day%d_reordered.csv" % num_day
             path_to_file = path_to_dir + '/' + filename
             f = open(path_to_file, 'r')
             list_lines = f.readlines()
@@ -454,7 +454,7 @@ class actor_critic:
         """
 
         # initialize collection of start states
-        self.init_pi0(path_to_dir=os.getcwd()+'/train_normalized2')
+        self.init_pi0(path_to_dir=os.getcwd()+'/train_normalized')
         self.num_start_samples = self.mat_pi0.shape[0] # number of rows
 
         list_reward = []

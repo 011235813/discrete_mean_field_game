@@ -5,6 +5,12 @@ import os
 
 ac = mfg_ac2.actor_critic(theta=10, shift=0.4, d=4)
 
+def test_pi0(indir):
+    ac = mfg_ac2.actor_critic(d=20)
+    ac.init_pi0(path_to_dir='./'+indir)
+    print(ac.mat_pi0)
+
+
 def test_action():
 
     pi = np.array([0.7, 0.09, 0.01, 0.2])
@@ -37,7 +43,7 @@ def time_action(n):
     print("Time taken for %d runs of sample_action" % n, (t_end - t_start))
     
 
-def test_cost():
+def test_reward():
     ac = mfg_ac2.actor_critic()
 
     P = np.array([[1,3,3],[4,5,6],[7,8,9]])
@@ -45,11 +51,11 @@ def test_cost():
     pi = np.array([0.1,0.2,0.7])
     print(pi)
 
-    reward = ac.calc_cost(P, pi, 3)
+    reward = ac.calc_reward(P, pi, 3)
 
     print("Reward", reward)
 
-def time_cost(n):
+def time_reward(n):
     ac = mfg_ac2.actor_critic()
     # P = np.array([[1,3,3,4],[4,5,6,6],[7,8,9,10],[1,2,3,4]])
     P = np.ones([47,47])
@@ -58,9 +64,9 @@ def time_cost(n):
     pi[0] = 1
     t_start = time.time()
     for j in range(n):
-        reward = ac.calc_cost(P, pi, 47)
+        reward = ac.calc_reward(P, pi, 47)
     t_end = time.time()
-    print("Time taken for %d runs of calc_cost" % n, (t_end - t_start))
+    print("Time taken for %d runs of calc_reward" % n, (t_end - t_start))
     print("Reward", reward)
 
     
