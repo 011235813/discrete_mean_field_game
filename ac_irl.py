@@ -32,9 +32,18 @@ class AC_IRL(actor_critic):
     def __init__(self, theta=8.86349, shift=0.16, alpha_scale=12000, d=20):
 
         super().__init__(theta, shift, alpha_scale, d)
+
+        # initialize collection of start states
+        self.init_pi0(path_to_dir=os.getcwd()+'/train_normalized_round2')
+        self.num_start_samples = self.mat_pi0.shape[0] # number of rows
+
         # Will become list of list of tuples of the form (state, action)
         self.list_demonstrations = []
         self.read_demonstrations(state_dir='./train_normalized_round2', action_dir='./actions')
+
+        # This is D_samp in the IRL algorithm. Will be populated while running outerloop()
+        self.list_generated = []
+        
     # ------------------- File processing functions ------------------ #
 
     # ------------------- End file processing functions ------------------ #
@@ -220,9 +229,7 @@ class AC_IRL(actor_critic):
         Main actor-critic training procedure that improves theta and w
         """
 
-        # initialize collection of start states
-        self.init_pi0(path_to_dir=os.getcwd()+'/train_normalized_round2')
-        self.num_start_samples = self.mat_pi0.shape[0] # number of rows
+
 
         list_reward = []
         for episode in range(num_episodes):
@@ -299,28 +306,74 @@ class AC_IRL(actor_critic):
                     self.train_log(np.array([reward_avg]), file_reward, "%.3e")
 
 
+    def generate_trajectories(self, n):
+        """
+        Use the current policy to generate trajectories
+        n - number of trajectories to generate
+
+        Return: list of generated trajectories
+        """
+        # Will be list of lists of tuples of form (state, action)
+        list_generated = []
+        num_start_samples = self.mat_pi0.shape[0] # number of rows
+        max_hour = 16
+
+        for idx_traj in range(n):
+            trajectory = []
+            # Sample start state
+            idx_row = np.random.randint(num_start_samples)
+            pi = self.mat_pi0[idx_row, :] # row vector
+
+            # Generate trajectory, i.e. a list of state-action pairs
+            hour = 1
+            while hour < max_hour:
+                P = self.sample_action(pi)
+                trajectory.append( (pi, P) )
+                pi = np.transpose(P).dot(pi)
+                hour += 1
+            list_generated.append( trajectory )
+
+        return list_generated
 
 
-    def outerloop(self, num_iterations=1000, num_forward_episodes=100, gamma=1, constant=False, lr_critic=0.1, lr_actor=0.001):
+    def update_reward(self):
+        """
+        Improvement of reward function via gradient descent
+
+        """
+        # Sample demonstrations
+
+        # Sample generated
+
+        # Combine
+
+        # Execute gradient descent
+
+        pass
+
+
+    def outerloop(self, num_iterations=1000, num_generated=5, num_forward_episodes=100, gamma=1, constant=False, lr_critic=0.1, lr_actor=0.001):
         """
         Outer-most loop that calls functions to update reward function
         and solve the forward problem
 
         num_iterations - number of reward function updates
+        num_generated - number of trajectories to generate using policy at each step
         num_forward_episodes - number of episodes to run when solving forward problem
         gamma - temporal discount
         constant - if True, then does not decrease learning rates
         lr_critic - learning rate for value function parameter update
         lr_actor - learning rate for policy parameter update
         """
-
-        
         for it in num_iterations:
             # Generate samples D_traj from current policy
+            list_generated = self.generate_trajectories(num_generated)
 
-            # D_samp <- D_samp U D_traj
+            # D_samp <- D_samp union D_traj
+            self.list_generated = self.list_generated + list_generated
 
             # Update reward function
+            self.update_reward()
 
             # Solve forward problem
             self.train(num_forward_episodes, gamma, constant, lr_critic, lr_actor, consecutive=100, file_theta='results/theta.csv', file_pi='results/pi.csv', file_reward='results/reward.csv', write_file=1, write_all=0)
