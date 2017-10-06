@@ -28,7 +28,7 @@ import networks
 
 class AC_IRL:
 
-    def __init__(self, theta=8.86349, shift=0.16, alpha_scale=12000, d=20, lr_reward=1e-4):
+    def __init__(self, theta=8.86349, shift=0.16, alpha_scale=12000, d=20, lr_reward=1e-4, num_policies=10):
 
         # initialize theta
         self.theta = theta
@@ -41,6 +41,8 @@ class AC_IRL:
 
         # learning rate for reward optimizer
         self.lr_reward = lr_reward
+        # number of policies to record
+        self.num_policies = num_policies
 
         # initialize collection of start states
         self.init_pi0(path_to_dir=os.getcwd()+'/train_normalized_round2')
@@ -63,10 +65,10 @@ class AC_IRL:
         # number of trajectories to use for part 2 of loss function
         self.num_sampled_trajectories = self.num_demo_samples + self.num_gen_samples
         # list of policies parameterized by theta, beginning with the initialized theta
-        self.list_policies = [theta]
+        self.list_policies = [theta] * self.num_policies
 
         # vector of importance sampling weights in loss function
-        self.vec_z = tf.Variable(np.zeros(self.num_sampled_trajectories), dtype=tf.float32)
+        # self.vec_z = tf.Variable(np.zeros(self.num_sampled_trajectories), dtype=tf.float32)
 
         # Define gradient descent steps for reward learning
         self.create_training_method()
@@ -91,6 +93,7 @@ class AC_IRL:
         state_dir - name of folder containing measured states for each hour of each day
         action_dir - name of folder containing measured actions for each hour of each day
         """
+        print("Inside read_demonstrations")
         num_file_action = len(os.listdir(action_dir))
         num_file_state = len(os.listdir(state_dir))
         if num_file_action != num_file_state:
@@ -110,7 +113,7 @@ class AC_IRL:
             # group into (state, action) pairs
             for hour in range(0,15):
                 state = states[hour,:]
-                action = actions[hour*20:(hour+1)*20, :]
+                action = actions[hour*self.d:(hour+1)*self.d, :]
                 # append state-action pair
                 trajectory.append( (state, action) )
             # append to list of demonstrations
@@ -121,16 +124,17 @@ class AC_IRL:
         """
         Creates neural net representation of reward function
         """
+        print("Inside create_network")
         # placeholder for actions in demonstration batch, shape [N, num_actions, d,d]
         # where N = number of trajectories * num actions along trajectory (should be 15)
-        self.demo_actions = tf.placeholder(dtype=tf.float32, shape=[None,20,20])
+        self.demo_actions = tf.placeholder(dtype=tf.float32, shape=[None,self.d,self.d])
         # placeholder for states in demonstration batch
         # where N = number of trajectories * num states along trajectory (should be 15)
-        self.demo_states = tf.placeholder(dtype=tf.float32, shape=[None,20])
+        self.demo_states = tf.placeholder(dtype=tf.float32, shape=[None,self.d])
         # placeholder for actions in generated batch
-        self.gen_actions = tf.placeholder(dtype=tf.float32, shape=[None,20,20])        
+        self.gen_actions = tf.placeholder(dtype=tf.float32, shape=[None,self.d,self.d])
         # placeholder for states in generated batch
-        self.gen_states = tf.placeholder(dtype=tf.float32, shape=[None,20])
+        self.gen_states = tf.placeholder(dtype=tf.float32, shape=[None,self.d])
         with tf.variable_scope("reward") as scope:
             # rewards for state-action pairs in demonstration batch
             # expected dimension [N, 1] where N = total number of transitions in batch
@@ -163,25 +167,24 @@ class AC_IRL:
         return pdf
         
 
-    def calc_z(self):
+    def calc_z_loop(self):
         """
         Calculates vector of z(traj_j) = [1/k sum_k q_k(traj_j)]^{-1}
         one element for each traj_j
         """
-        num_policies = len(self.list_policies)
         # self.gen_actions is [num_sampled_trajectories*15, 20, 20]
         # reshape to [num_sampled_trajectories, 15, 20, 20]
-        gen_actions_reshaped = tf.reshape(self.gen_actions, [self.num_sampled_trajectories,15,20,20])
+        gen_actions_reshaped = tf.reshape(self.gen_actions, [self.num_sampled_trajectories,15,self.d,self.d])
         # self.gen_states is [num_sampled_trajectories*15, 20]
         # reshape to [num_sampled_trajectories, 15, 20]
-        gen_states_reshaped = tf.reshape(self.gen_states, [self.num_sampled_trajectories,15,20])
+        gen_states_reshaped = tf.reshape(self.gen_states, [self.num_sampled_trajectories,15,self.d])
 
         list_ops = []
         for j in range(self.num_sampled_trajectories):
             traj_actions = gen_actions_reshaped[j] # 15 x 20 x 20
             traj_states = gen_states_reshaped[j] # 15 x 20
             sum_q_over_k = 0
-            for k in range(num_policies):
+            for k in range(self.num_policies):
                 theta = self.list_policies[k]
                 # probability of start state Prob(s_1) is 1 / # starting samples
                 # q_traj = p(s_1) prod_{t=1}^T q(a_t; s_t, theta)
@@ -191,16 +194,60 @@ class AC_IRL:
                     q_traj *= self.calc_pdf_action(theta, traj_actions[t], traj_states[t])
                 sum_q_over_k += q_traj
             # z_j = [ 1/k sum_k q_k(traj_j) ]^{-1}
-            list_ops.append( self.vec_z[j].assign( num_policies/sum_q_over_k ) )
+            list_ops.append( self.vec_z[j].assign( self.num_policies/sum_q_over_k ) )
         with tf.control_dependencies(list_ops):
             self.vec_z = tf.identity(self.vec_z)
 
+
+    def calc_z(self):
+        """
+        Calculates vector of z(traj_j) = [1/k sum_k q_k(traj_j)]^{-1}
+        one element for each traj_j
+        """
+        print("Inside calc_z")
+        # self.gen_actions is [num_trajectories x 15, 20, 20]
+        # Reshape actions to [num_trajectories, 1, time, 20, 20] with an extra dimension
+        actions_reshaped = tf.reshape(self.gen_actions, [self.num_sampled_trajectories, 1, 15, self.d, self.d])
+        # duplicate along the extra dimension <self.num_policies> times
+        # [<num_trajectories>, <num_policies>, 15, 20, 20]
+        actions_duplicated = tf.tile( actions_reshaped, [1,self.num_policies,1,1,1] )
+
+        # Use self.gen_states to create alpha tensor
+        # self.gen_states is [num_trajectories x 15 , 20]
+        # [<num_trajectories>, 15, 20, 20], all rows over 3rd dimension are same
+        # Compare to mat1 in matrix case
+        states_duplicated_rows = tf.tile( tf.reshape(self.gen_states, [self.num_sampled_trajectories, 15, 1, self.d]), [1,1,self.d,1] )
+        # [<num_trajectories>, 15, 20, 20], all columns over 4th dimension are same
+        # Compare to mat2 in matrix case
+        states_duplicated_columns = tf.tile( tf.reshape(self.gen_states, [self.num_sampled_trajectories, 15, self.d, 1]), [1,1,1,self.d] )
+        diff = states_duplicated_rows - states_duplicated_columns
+        # Duplicate along one extra dimension <self.num_policies> times
+        # [<num_trajectories>, <num_policies>, 15, 20, 20]
+        diff_duplicated = tf.tile( tf.reshape(diff, [self.num_sampled_trajectories,1,15,self.d,self.d]), [1,self.num_policies,1,1,1] )
+        # Weight by each policy's theta
+        theta_duplicated = tf.reshape( tf.cast(self.list_policies, tf.float32), [1,self.num_policies, 1,1,1] )
+        tensor_alpha = tf.log( 1 + tf.exp( tf.multiply((diff_duplicated - self.shift), theta_duplicated) ) ) # [<num_trajectories>, <num_policies>, 15, 20, 20]
+        # Compute dirichlet for everything
+        dist = tf.distributions.Dirichlet(tensor_alpha)
+        pdf = dist.prob(actions_duplicated) # [<num_trajectories>, <num_policies>, 15, 20]
+
+        # Now reduce everything
+        # product over topic dimension to get q_k(P^t) from q_k(P^t_1)...q_k(P^t_d)
+        reduce1 = tf.reduce_prod(pdf, axis=3) # [<num_trajectories>, <num_policies>, 15]
+        # product over time to get q_k(tau_j) from q_k(P^1)...q_k(P^15)
+        # NOTE: start state probability Pr(s_1) will be multiplied in below
+        reduce2 = tf.reduce_prod(reduce1, axis=2) # [<num_trajectories>, <num_policies>]
+        # sum over policy dimension to get sum_k q_k(tau_j)
+        reduce3 = tf.reduce_sum(reduce2, axis=1) # [<num_trajectories>]
+        # z_j = k / (sum_k q_k(tau_j)), along with start state probability
+        self.vec_z = self.num_policies / ( self.num_start_samples * reduce3 )
+        
 
     def create_training_method(self):
         """
         Defines loss, optimizer, and creates training operation.
         """
-
+        print("Inside create_training_method")
         # first term = - 1/N sum_{traj_demo} r(traj_demo)
         # where N = number of sampled demo trajectories
         # just sum up r(s,a) over all (s_t,a_t) in each trajectory over all demo trajectories
@@ -215,7 +262,7 @@ class AC_IRL:
         # sum over time to get vector of r(traj_sample) for each traj_sample
         gen_rewards_per_traj = tf.reduce_sum( gen_rewards_reshaped, axis=1 )
         # exponentiate to get exp(r(traj_sample))
-        gen_rewards_exp = tf.exp(gen_rewards_per_traj) # num_sampled_trajectories x 1
+        gen_rewards_exp = tf.exp(gen_rewards_per_traj) # [num_sampled_trajectories]
 
         # calculate vector of z_{traj_sample} = [ 1/k sum_k q_k(traj_sample) ]^{-1}
         self.calc_z()
@@ -332,7 +379,7 @@ class AC_IRL:
         return np.array(list_features)
 
 
-    def calc_alpha_deriv(pi):
+    def calc_alpha_deriv(self, pi):
         """
         Calculates derivative of alpha^i_j = ln(1 + exp(theta((pi_j - pi_i) - s)))
         pi - row vector
@@ -345,7 +392,7 @@ class AC_IRL:
         diff = mat1 - mat2
 
         # d(alpha^i_j)/d(theta) = \frac{ pi_j - pi_i - shift } { 1 + exp( -theta*(pi_j - pi_i - shift) ) }
-        numerator = temp - self.shift
+        numerator = diff - self.shift
         denominator = 1 + np.exp( (-self.theta) * numerator)
         self.mat_alpha_deriv = numerator / denominator
 
@@ -405,8 +452,10 @@ class AC_IRL:
         lr_actor - learning rate for policy parameter update
         consecutive - number of consecutive episodes between report of average reward
         """
+        print("Running forward solver")
         list_reward = []
         for episode in range(num_episodes):
+            print("forward episode ", episode)
             if write_all:
                 with open('temp.csv', 'a') as f:
                     f.write('Episode %d \n\n' % episode)
@@ -482,7 +531,7 @@ class AC_IRL:
                     self.train_log(np.array([reward_avg]), file_reward, "%.3e")
 
         # record this policy
-        self.list_policies.append(theta)
+        self.list_policies = (self.list_policies + [self.theta])[1:]
 
 
     def generate_trajectories(self, n):
@@ -519,6 +568,7 @@ class AC_IRL:
         Improvement of reward function via gradient descent
 
         """
+        print("Updating reward")
         # Sample demonstrations from self.list_demonstrations,
         # which is list of lists of tuples
         if len(self.list_demonstrations) >= self.num_demo_samples:
@@ -545,10 +595,11 @@ class AC_IRL:
         feed_dict = {self.demo_states:demo_states, self.demo_actions:demo_actions, self.gen_states:gen_states, self.gen_actions:gen_actions}
 
         # Execute gradient descent
+        print("Running r_train_op")
         _ = self.sess.run(self.r_train_op, feed_dict=feed_dict)
 
 
-    def outerloop(self, num_iterations=1000, num_generated=5, num_forward_episodes=100, gamma=1, constant=False, lr_critic=0.1, lr_actor=0.001):
+    def outerloop(self, num_iterations=1000, num_gen_from_policy=5, num_forward_episodes=100, gamma=1, constant=False, lr_critic=0.1, lr_actor=0.001):
         """
         Outer-most loop that calls functions to update reward function
         and solve the forward problem
@@ -562,18 +613,27 @@ class AC_IRL:
         lr_actor - learning rate for policy parameter update
         """
 
+        # At the beginning, generate trajectories from initial policies, all of which
+        # are the same. This is meant to populate the data for use in reward learning,
+        # before accumulating <num_policies> different policies from forward passes
+        self.list_generated = self.generate_trajectories(num_gen_from_policy * self.num_policies)
+
         for it in range(num_iterations):
+            print("Iteration ", it)
             # Generate samples D_traj from current policy
-            list_generated = self.generate_trajectories(num_generated)
+            list_generated = self.generate_trajectories(num_gen_from_policy)
 
             # D_samp <- D_samp union D_traj
             self.list_generated = self.list_generated + list_generated
+            # kick out trajectories generated from the earliest policy
+            self.list_generated = self.list_generated[num_gen_from_policy: ]
 
             # Update reward function
             self.update_reward()
 
             # Solve forward problem
             self.train(num_forward_episodes, gamma, constant, lr_critic, lr_actor, consecutive=100, file_theta='results/theta.csv', file_pi='results/pi.csv', file_reward='results/reward.csv', write_file=1, write_all=0)
+            print("\n")
 
 
 # ---------------- End training code ---------------- #
