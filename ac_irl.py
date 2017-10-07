@@ -1,6 +1,6 @@
 """
-Derives from mfg_ac2.py, and implements inverse reinforcement learning
-using the MaxEnt IRL guided cost learning framework in Finn et al. 2016
+Inverse reinforcement learning with policy improvement in the loop
+Uses the MaxEnt IRL guided cost learning algorithm in Finn et al. 2016
 """
 
 import numpy as np
@@ -210,7 +210,10 @@ class AC_IRL:
         actions_reshaped = tf.reshape(self.gen_actions, [self.num_sampled_trajectories, 1, 15, self.d, self.d])
         # duplicate along the extra dimension <self.num_policies> times
         # [<num_trajectories>, <num_policies>, 15, 20, 20]
-        actions_duplicated = tf.tile( actions_reshaped, [1,self.num_policies,1,1,1] )
+        self.actions_duplicated = tf.tile( actions_reshaped, [1,self.num_policies,1,1,1] )
+        # replace all instances of 0 with 1e-6 to avoid raising 0 to negative power when
+        # calculating pdf
+        self.actions_nozeros = tf.where( tf.equal(self.actions_duplicated,0), tf.ones_like(self.actions_duplicated)*1e-6, self.actions_duplicated)
 
         # Use self.gen_states to create alpha tensor
         # self.gen_states is [num_trajectories x 15 , 20]
@@ -226,21 +229,21 @@ class AC_IRL:
         diff_duplicated = tf.tile( tf.reshape(diff, [self.num_sampled_trajectories,1,15,self.d,self.d]), [1,self.num_policies,1,1,1] )
         # Weight by each policy's theta
         theta_duplicated = tf.reshape( tf.cast(self.list_policies, tf.float32), [1,self.num_policies, 1,1,1] )
-        tensor_alpha = tf.log( 1 + tf.exp( tf.multiply((diff_duplicated - self.shift), theta_duplicated) ) ) # [<num_trajectories>, <num_policies>, 15, 20, 20]
+        self.tensor_alpha = tf.log( 1 + tf.exp( tf.multiply((diff_duplicated - self.shift), theta_duplicated) ) ) # [<num_trajectories>, <num_policies>, 15, 20, 20]
         # Compute dirichlet for everything
-        dist = tf.distributions.Dirichlet(tensor_alpha)
-        pdf = dist.prob(actions_duplicated) # [<num_trajectories>, <num_policies>, 15, 20]
+        dist = tf.distributions.Dirichlet(self.tensor_alpha)
+        self.pdf = dist.prob(self.actions_nozeros) # [<num_trajectories>, <num_policies>, 15, 20]
 
         # Now reduce everything
         # product over topic dimension to get q_k(P^t) from q_k(P^t_1)...q_k(P^t_d)
-        reduce1 = tf.reduce_prod(pdf, axis=3) # [<num_trajectories>, <num_policies>, 15]
+        self.reduce1 = tf.reduce_prod(self.pdf, axis=3) # [<num_trajectories>, <num_policies>, 15]
         # product over time to get q_k(tau_j) from q_k(P^1)...q_k(P^15)
         # NOTE: start state probability Pr(s_1) will be multiplied in below
-        reduce2 = tf.reduce_prod(reduce1, axis=2) # [<num_trajectories>, <num_policies>]
+        self.reduce2 = tf.reduce_prod(self.reduce1, axis=2) # [<num_trajectories>, <num_policies>]
         # sum over policy dimension to get sum_k q_k(tau_j)
-        reduce3 = tf.reduce_sum(reduce2, axis=1) # [<num_trajectories>]
+        self.reduce3 = tf.reduce_sum(self.reduce2, axis=1) # [<num_trajectories>]
         # z_j = k / (sum_k q_k(tau_j)), along with start state probability
-        self.vec_z = self.num_policies / ( self.num_start_samples * reduce3 )
+        self.vec_z = self.num_policies / ( self.num_start_samples * self.reduce3 )
         
 
     def create_training_method(self):
@@ -343,7 +346,13 @@ class AC_IRL:
         for i in range(self.d):
             # Get y^i_1, ... y^i_d
             # Using the vector as input to shape reduces runtime by 5s
-            y = np.random.gamma(shape=self.mat_alpha[i,:]*self.alpha_scale, scale=1)
+            try:
+                y = np.random.gamma(shape=self.mat_alpha[i,:]*self.alpha_scale, scale=1)
+            except ValueError:
+                print("ValueError!")
+                print(pi)
+                print(self.mat_alpha)
+                print(self.mat_alpha[i,:]*self.alpha_scale)
             # replace zeros with dummy value
             y[y == 0] = 1e-20
             total = np.sum(y)
@@ -454,7 +463,7 @@ class AC_IRL:
         """
         print("Running forward solver")
         list_reward = []
-        for episode in range(num_episodes):
+        for episode in range(1, num_episodes+1):
             print("forward episode ", episode)
             if write_all:
                 with open('temp.csv', 'a') as f:
@@ -473,7 +482,12 @@ class AC_IRL:
                 num_steps += 1
 
                 # Sample action
+                print("Forward solver step %d before sample_action" % num_steps)
                 P = self.sample_action(pi)
+                print("Forward solver step %d pi" % num_steps)
+                print(pi)
+                print("Forward solver step %d action matrix row 0" % num_steps)
+                print(P[0])
 
                 if write_all:
                     with open('temp.csv', 'ab') as f:
@@ -489,6 +503,8 @@ class AC_IRL:
                 # Calculate reward
                 # reward = self.calc_reward(P, pi, self.d)
                 reward = self.sess.run( self.reward_gen, feed_dict={self.gen_states:[pi], self.gen_actions:[P]} )
+                print("Forward solver step %d reward" % num_steps)
+                print(reward)
                 
                 # Calculate TD error
                 vec_features_next = self.calc_features(pi_next)
@@ -508,10 +524,14 @@ class AC_IRL:
                 # Update policy parameter
                 # theta <- theta + beta * grad(log(F)) * TD error
                 gradient = self.calc_gradient_vectorized(P, pi)
+                print("Forward solver step %d before theta update" % num_steps)
+                print(delta)
+                print(gradient)
                 if constant:
                     self.theta = self.theta + lr_actor * delta * gradient
                 else:
                     self.theta = self.theta + (lr_actor/((episode+1)*np.log(np.log(episode+20)))) * delta * gradient #here
+                print("Forward solver step %d after theta update" % num_steps)
 
                 discount = discount * gamma
                 pi = pi_next
@@ -541,6 +561,8 @@ class AC_IRL:
 
         Return: list of generated trajectories
         """
+        print("Inside generate_trajectories")
+        print("Inside generate_trajectories, theta ", self.theta)
         # Will be list of lists of tuples of form (state, action)
         list_generated = []
         max_hour = 16
@@ -628,11 +650,13 @@ class AC_IRL:
             # kick out trajectories generated from the earliest policy
             self.list_generated = self.list_generated[num_gen_from_policy: ]
 
+            print("Before update_reward, theta ", self.theta)
             # Update reward function
             self.update_reward()
+            print("After update_reward, theta ", self.theta)
 
             # Solve forward problem
-            self.train(num_forward_episodes, gamma, constant, lr_critic, lr_actor, consecutive=100, file_theta='results/theta.csv', file_pi='results/pi.csv', file_reward='results/reward.csv', write_file=1, write_all=0)
+            self.train(num_forward_episodes, gamma, constant, lr_critic, lr_actor, consecutive=10, file_theta='results/theta.csv', file_pi='results/pi.csv', file_reward='results/reward.csv', write_file=1, write_all=0)
             print("\n")
 
 
