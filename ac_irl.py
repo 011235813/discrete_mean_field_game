@@ -28,7 +28,7 @@ import networks
 
 class AC_IRL:
 
-    def __init__(self, theta=8.86349, shift=0.16, alpha_scale=12000, d=20, lr_reward=1e-4, num_policies=10):
+    def __init__(self, theta=8.86349, shift=0.16, alpha_scale=12000, d=15, lr_reward=1e-4, num_policies=10, c=2e11):
 
         # initialize theta
         self.theta = theta
@@ -43,6 +43,8 @@ class AC_IRL:
         self.lr_reward = lr_reward
         # number of policies to record
         self.num_policies = num_policies
+        # normalizer
+        self.c = c
 
         # initialize collection of start states
         self.init_pi0(path_to_dir=os.getcwd()+'/train_normalized_round2')
@@ -63,7 +65,8 @@ class AC_IRL:
         # number of generated trajectories to sample each time for reward learning
         self.num_gen_samples = 5
         # number of trajectories to use for part 2 of loss function
-        self.num_sampled_trajectories = self.num_demo_samples + self.num_gen_samples
+        # self.num_sampled_trajectories = self.num_demo_samples + self.num_gen_samples
+        self.num_sampled_trajectories = self.num_gen_samples
         # list of policies parameterized by theta, beginning with the initialized theta
         self.list_policies = [theta] * self.num_policies
 
@@ -84,7 +87,7 @@ class AC_IRL:
 
     # ------------------- New and overridden functions ---------------- #
 
-    def read_demonstrations(self, state_dir, action_dir):
+    def read_demonstrations(self, state_dir, action_dir, dim_action=20):
         """
         Reads measured trajectories to produce list of trajectories,
         where each trajectory is a list of (state, action) pairs,
@@ -92,6 +95,7 @@ class AC_IRL:
         
         state_dir - name of folder containing measured states for each hour of each day
         action_dir - name of folder containing measured actions for each hour of each day
+        dim_action - dimension of action matrix that was recorded (will be larger than or equal to self.d)
         """
         print("Inside read_demonstrations")
         num_file_action = len(os.listdir(action_dir))
@@ -106,14 +110,14 @@ class AC_IRL:
             # read states for this day
             states = pd.read_table(state_dir+'/'+file_state, delimiter=' ', header=None)
             # convert to np matrix
-            states = states.as_matrix() # 16 x 20
+            states = states.as_matrix() # 16 x d
             # read actions for this day, automatically skips over blank lines
             actions = pd.read_table(action_dir+'/'+file_action, delimiter=' ', header=None)
-            actions = actions.as_matrix() # (15*20) * 20
+            actions = actions.as_matrix() # (15*d) * d
             # group into (state, action) pairs
             for hour in range(0,15):
-                state = states[hour,:]
-                action = actions[hour*self.d:(hour+1)*self.d, :]
+                state = states[hour, 0:self.d]
+                action = actions[hour*dim_action:(hour*dim_action+self.d), 0:self.d]
                 # append state-action pair
                 trajectory.append( (state, action) )
             # append to list of demonstrations
@@ -138,11 +142,11 @@ class AC_IRL:
         with tf.variable_scope("reward") as scope:
             # rewards for state-action pairs in demonstration batch
             # expected dimension [N, 1] where N = total number of transitions in batch
-            self.reward_demo = networks.r_net(self.demo_states, self.demo_actions, f1=2, k1=5, f2=4, k2=3)
+            self.reward_demo = networks.r_net(self.demo_states, self.demo_actions, f1=2, k1=5, f2=4, k2=3, d=self.d)
             scope.reuse_variables()
             # rewards for state-action pairs in generated batch
             # expected dimension [N, 1] where N = total number of transitions in batch
-            self.reward_gen = networks.r_net(self.gen_states, self.gen_actions, f1=2, k1=5, f2=4, k2=3)
+            self.reward_gen = networks.r_net(self.gen_states, self.gen_actions, f1=2, k1=5, f2=4, k2=3, d=self.d)
 
 
     def calc_pdf_action(self, theta, action, state):
@@ -172,17 +176,17 @@ class AC_IRL:
         Calculates vector of z(traj_j) = [1/k sum_k q_k(traj_j)]^{-1}
         one element for each traj_j
         """
-        # self.gen_actions is [num_sampled_trajectories*15, 20, 20]
-        # reshape to [num_sampled_trajectories, 15, 20, 20]
+        # self.gen_actions is [num_sampled_trajectories*15, d, d]
+        # reshape to [num_sampled_trajectories, 15, d, d]
         gen_actions_reshaped = tf.reshape(self.gen_actions, [self.num_sampled_trajectories,15,self.d,self.d])
-        # self.gen_states is [num_sampled_trajectories*15, 20]
-        # reshape to [num_sampled_trajectories, 15, 20]
+        # self.gen_states is [num_sampled_trajectories*15, d]
+        # reshape to [num_sampled_trajectories, 15, d]
         gen_states_reshaped = tf.reshape(self.gen_states, [self.num_sampled_trajectories,15,self.d])
 
         list_ops = []
         for j in range(self.num_sampled_trajectories):
-            traj_actions = gen_actions_reshaped[j] # 15 x 20 x 20
-            traj_states = gen_states_reshaped[j] # 15 x 20
+            traj_actions = gen_actions_reshaped[j] # 15 x d x d
+            traj_states = gen_states_reshaped[j] # 15 x d
             sum_q_over_k = 0
             for k in range(self.num_policies):
                 theta = self.list_policies[k]
@@ -205,45 +209,56 @@ class AC_IRL:
         one element for each traj_j
         """
         print("Inside calc_z")
-        # self.gen_actions is [num_trajectories x 15, 20, 20]
-        # Reshape actions to [num_trajectories, 1, time, 20, 20] with an extra dimension
+        # self.gen_actions is [num_trajectories x 15, d, d]
+        # Reshape actions to [num_trajectories, 1, time, d, d] with an extra dimension
         actions_reshaped = tf.reshape(self.gen_actions, [self.num_sampled_trajectories, 1, 15, self.d, self.d])
         # duplicate along the extra dimension <self.num_policies> times
-        # [<num_trajectories>, <num_policies>, 15, 20, 20]
+        # [<num_trajectories>, <num_policies>, 15, d, d]
         self.actions_duplicated = tf.tile( actions_reshaped, [1,self.num_policies,1,1,1] )
         # replace all instances of 0 with 1e-6 to avoid raising 0 to negative power when
         # calculating pdf
-        self.actions_nozeros = tf.where( tf.equal(self.actions_duplicated,0), tf.ones_like(self.actions_duplicated)*1e-6, self.actions_duplicated)
+        # self.actions_nozeros = tf.where( tf.equal(self.actions_duplicated,0), tf.ones_like(self.actions_duplicated)*1e-6, self.actions_duplicated)
 
         # Use self.gen_states to create alpha tensor
-        # self.gen_states is [num_trajectories x 15 , 20]
-        # [<num_trajectories>, 15, 20, 20], all rows over 3rd dimension are same
+        # self.gen_states is [num_trajectories x 15 , d]
+        # [<num_trajectories>, 15, d, d], all rows over 3rd dimension are same
         # Compare to mat1 in matrix case
         states_duplicated_rows = tf.tile( tf.reshape(self.gen_states, [self.num_sampled_trajectories, 15, 1, self.d]), [1,1,self.d,1] )
-        # [<num_trajectories>, 15, 20, 20], all columns over 4th dimension are same
+        # [<num_trajectories>, 15, d, d], all columns over 4th dimension are same
         # Compare to mat2 in matrix case
         states_duplicated_columns = tf.tile( tf.reshape(self.gen_states, [self.num_sampled_trajectories, 15, self.d, 1]), [1,1,1,self.d] )
         diff = states_duplicated_rows - states_duplicated_columns
         # Duplicate along one extra dimension <self.num_policies> times
-        # [<num_trajectories>, <num_policies>, 15, 20, 20]
+        # [<num_trajectories>, <num_policies>, 15, d, d]
         diff_duplicated = tf.tile( tf.reshape(diff, [self.num_sampled_trajectories,1,15,self.d,self.d]), [1,self.num_policies,1,1,1] )
         # Weight by each policy's theta
         theta_duplicated = tf.reshape( tf.cast(self.list_policies, tf.float32), [1,self.num_policies, 1,1,1] )
-        self.tensor_alpha = tf.log( 1 + tf.exp( tf.multiply((diff_duplicated - self.shift), theta_duplicated) ) ) # [<num_trajectories>, <num_policies>, 15, 20, 20]
+        self.tensor_alpha = tf.log( 1 + tf.exp( tf.multiply((diff_duplicated - self.shift), theta_duplicated) ) ) # [<num_trajectories>, <num_policies>, 15, d, d]
+        # Lower-bound alpha by 1, to avoid P_{ij}^{alpha - 1}
+        # blowing up when P_{ij} is close to zero and alpha is less than 1
+        self.tensor_alpha_lowerbound = tf.maximum( tf.scalar_mul(1+1e-6, tf.ones_like(self.tensor_alpha)), self.tensor_alpha )
         # Compute dirichlet for everything
-        dist = tf.distributions.Dirichlet(self.tensor_alpha)
-        self.pdf = dist.prob(self.actions_nozeros) # [<num_trajectories>, <num_policies>, 15, 20]
+        dist = tf.distributions.Dirichlet(self.tensor_alpha_lowerbound)
+        # self.pdf = dist.prob(self.actions_nozeros) # [<num_trajectories>, <num_policies>, 15, d]
+        self.pdf = dist.prob(self.actions_duplicated) # [<num_trajectories>, <num_policies>, 15, d]
+        self.pdf = tf.cast(self.pdf, tf.float64)
+        # Compute max value in pdf 
+        # max_val = tf.reduce_max(self.pdf) # this does not work
+        self.normalizer = tf.placeholder(dtype=tf.float64, shape=None)
+        # Reduce magnitude
+        self.pdf_normalized = self.pdf / self.normalizer
 
         # Now reduce everything
         # product over topic dimension to get q_k(P^t) from q_k(P^t_1)...q_k(P^t_d)
-        self.reduce1 = tf.reduce_prod(self.pdf, axis=3) # [<num_trajectories>, <num_policies>, 15]
+        self.reduce1 = tf.reduce_prod(self.pdf_normalized, axis=3) # [<num_trajectories>, <num_policies>, 15]
+        # self.reduce1 = tf.reduce_prod(self.pdf, axis=3) # [<num_trajectories>, <num_policies>, 15]        
         # product over time to get q_k(tau_j) from q_k(P^1)...q_k(P^15)
         # NOTE: start state probability Pr(s_1) will be multiplied in below
         self.reduce2 = tf.reduce_prod(self.reduce1, axis=2) # [<num_trajectories>, <num_policies>]
         # sum over policy dimension to get sum_k q_k(tau_j)
         self.reduce3 = tf.reduce_sum(self.reduce2, axis=1) # [<num_trajectories>]
         # z_j = k / (sum_k q_k(tau_j)), along with start state probability
-        self.vec_z = self.num_policies / ( self.num_start_samples * self.reduce3 )
+        self.vec_z = tf.cast(self.num_policies / (self.num_start_samples * self.reduce3), tf.float32)
         
 
     def create_training_method(self):
@@ -270,6 +285,7 @@ class AC_IRL:
         # calculate vector of z_{traj_sample} = [ 1/k sum_k q_k(traj_sample) ]^{-1}
         self.calc_z()
         second_term = tf.log( 1.0/self.num_sampled_trajectories * tf.reduce_sum( self.vec_z * gen_rewards_exp) )
+        # second_term = tf.log( 1.0 / self.num_sampled_trajectories * tf.reduce_sum( gen_rewards_exp) ) 
 
         # compute loss = negative log likelihood
         self.loss = sum_demo_rewards + second_term
@@ -464,7 +480,7 @@ class AC_IRL:
         print("Running forward solver")
         list_reward = []
         for episode in range(1, num_episodes+1):
-            print("forward episode ", episode)
+            # print("forward episode ", episode)
             if write_all:
                 with open('temp.csv', 'a') as f:
                     f.write('Episode %d \n\n' % episode)
@@ -482,12 +498,7 @@ class AC_IRL:
                 num_steps += 1
 
                 # Sample action
-                print("Forward solver step %d before sample_action" % num_steps)
                 P = self.sample_action(pi)
-                print("Forward solver step %d pi" % num_steps)
-                print(pi)
-                print("Forward solver step %d action matrix row 0" % num_steps)
-                print(P[0])
 
                 if write_all:
                     with open('temp.csv', 'ab') as f:
@@ -503,8 +514,8 @@ class AC_IRL:
                 # Calculate reward
                 # reward = self.calc_reward(P, pi, self.d)
                 reward = self.sess.run( self.reward_gen, feed_dict={self.gen_states:[pi], self.gen_actions:[P]} )
-                print("Forward solver step %d reward" % num_steps)
-                print(reward)
+                if np.isnan(reward) or reward == np.inf or reward == -np.inf:
+                    print(reward)
                 
                 # Calculate TD error
                 vec_features_next = self.calc_features(pi_next)
@@ -524,14 +535,10 @@ class AC_IRL:
                 # Update policy parameter
                 # theta <- theta + beta * grad(log(F)) * TD error
                 gradient = self.calc_gradient_vectorized(P, pi)
-                print("Forward solver step %d before theta update" % num_steps)
-                print(delta)
-                print(gradient)
                 if constant:
                     self.theta = self.theta + lr_actor * delta * gradient
                 else:
                     self.theta = self.theta + (lr_actor/((episode+1)*np.log(np.log(episode+20)))) * delta * gradient #here
-                print("Forward solver step %d after theta update" % num_steps)
 
                 discount = discount * gamma
                 pi = pi_next
@@ -562,7 +569,6 @@ class AC_IRL:
         Return: list of generated trajectories
         """
         print("Inside generate_trajectories")
-        print("Inside generate_trajectories, theta ", self.theta)
         # Will be list of lists of tuples of form (state, action)
         list_generated = []
         max_hour = 16
@@ -585,12 +591,46 @@ class AC_IRL:
         return list_generated
 
 
+    def debug(self, feed_dict):
+        self.tensor_alpha_val = self.sess.run(self.tensor_alpha, feed_dict=feed_dict)
+        self.tensor_alpha_lowerbound_val = self.sess.run(self.tensor_alpha_lowerbound, feed_dict=feed_dict)
+
+        self.pdf_val = self.sess.run(self.pdf, feed_dict=feed_dict)
+        print("pdf max val = ", np.max(self.pdf_val))
+        print("pdf min val = ", np.min(self.pdf_val))
+        pdf_max_along_rows = np.max(self.pdf_val, axis=3)
+        pdf_min_along_rows = np.min(self.pdf_val, axis=3)
+        pdf_diff = pdf_max_along_rows - pdf_min_along_rows
+        pdf_max_diff = np.max(pdf_diff)
+        print("pdf max over everything of difference between max and min val for a single P matrix ", pdf_max_diff)
+
+        self.pdf_normalized_val = self.sess.run(self.pdf_normalized, feed_dict=feed_dict)
+        print("pdf_normalized[0,0,0]")
+        print(self.pdf_normalized_val[0,0,0])
+
+        self.reduce1_val = self.sess.run(self.reduce1, feed_dict=feed_dict)
+        print("reduce1[0,0]")
+        print(self.reduce1_val[0,0])
+    
+        self.reduce2_val = self.sess.run(self.reduce2, feed_dict=feed_dict)
+        print("reduce2[0]")
+        print(self.reduce2_val[0])
+    
+        self.reduce3_val = self.sess.run(self.reduce3, feed_dict=feed_dict)
+        print("reduce3")
+        print(self.reduce3_val)
+    
+        self.vec_z_val = self.sess.run(self.vec_z, feed_dict=feed_dict)
+        print("vec_z")
+        print(self.vec_z_val)
+
+
     def update_reward(self):
         """
         Improvement of reward function via gradient descent
 
         """
-        print("Updating reward")
+        print("In update_reward")
         # Sample demonstrations from self.list_demonstrations,
         # which is list of lists of tuples
         if len(self.list_demonstrations) >= self.num_demo_samples:
@@ -611,17 +651,21 @@ class AC_IRL:
         gen_actions = [pair[1] for traj in gen_sampled for pair in traj]
 
         # Combine
-        gen_states = gen_states + demo_states
-        gen_actions = gen_actions + demo_actions
+        # gen_states = gen_states + demo_states
+        # gen_actions = gen_actions + demo_actions
 
-        feed_dict = {self.demo_states:demo_states, self.demo_actions:demo_actions, self.gen_states:gen_states, self.gen_actions:gen_actions}
+        feed_dict = {self.demo_states:demo_states, self.demo_actions:demo_actions, self.gen_states:gen_states, self.gen_actions:gen_actions, self.normalizer:self.c}
+
+        # debugging
+        self.debug(feed_dict)
 
         # Execute gradient descent
-        print("Running r_train_op")
         _ = self.sess.run(self.r_train_op, feed_dict=feed_dict)
 
+        print(self.theta)
 
-    def outerloop(self, num_iterations=1000, num_gen_from_policy=5, num_forward_episodes=100, gamma=1, constant=False, lr_critic=0.1, lr_actor=0.001):
+
+    def outerloop(self, num_iterations=20, num_gen_from_policy=5, num_forward_episodes=20, gamma=1, constant=False, lr_critic=0.1, lr_actor=0.001):
         """
         Outer-most loop that calls functions to update reward function
         and solve the forward problem
@@ -650,10 +694,8 @@ class AC_IRL:
             # kick out trajectories generated from the earliest policy
             self.list_generated = self.list_generated[num_gen_from_policy: ]
 
-            print("Before update_reward, theta ", self.theta)
             # Update reward function
             self.update_reward()
-            print("After update_reward, theta ", self.theta)
 
             # Solve forward problem
             self.train(num_forward_episodes, gamma, constant, lr_critic, lr_actor, consecutive=10, file_theta='results/theta.csv', file_pi='results/pi.csv', file_reward='results/reward.csv', write_file=1, write_all=0)
