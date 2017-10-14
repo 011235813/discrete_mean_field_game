@@ -18,6 +18,7 @@ def r_net(state_input, action_input, f1=2, k1=5, f2=4, k2=3, d=15):
     k1 - kernel size for first conv layer (height=width)
     f2 - number of filters for second conv layer
     k2 - kernel size for second conv layer (height=width)
+    d - number of topics
     """
     action_input = tf.reshape(action_input, [-1,d,d,1])
     state_input = tf.reshape(state_input, [-1,d])
@@ -30,13 +31,14 @@ def r_net(state_input, action_input, f1=2, k1=5, f2=4, k2=3, d=15):
     # flatten to vector
     conv2_flat = tf.reshape(conv2, [-1, f2*d*d]) # batch_size x (f2*d*d)
     # feed conv output to linear layer before combining with state vector
-    fc3 = tf.contrib.layers.fully_connected(inputs=conv2_flat, num_outputs=256, activation_fn=tf.nn.relu, scope='fc3') # batch_size x 256
+    fc3 = tf.contrib.layers.fully_connected(inputs=conv2_flat, num_outputs=64, activation_fn=tf.nn.relu, scope='fc3') # batch_size x 64
     # for each sample in batch, concatenate conved action with state
     fc3_action = tf.concat([fc3, state_input], 1)
     # one more fc layer
-    fc4 = tf.contrib.layers.fully_connected(inputs=fc3_action, num_outputs=256, activation_fn=tf.nn.relu, scope='fc4')
+    fc4 = tf.contrib.layers.fully_connected(inputs=fc3_action, num_outputs=64, activation_fn=tf.nn.relu, scope='fc4')
+    fc5 = tf.contrib.layers.fully_connected(inputs=fc4, num_outputs=16, activation_fn=tf.nn.relu, scope='fc5')
     # final output layer without nonlinearity
-    out = tf.contrib.layers.fully_connected(inputs=fc4, num_outputs=1, activation_fn=None, scope='out')
+    out = tf.contrib.layers.fully_connected(inputs=fc5, num_outputs=1, activation_fn=tf.nn.tanh, scope='out')
 
     return out
 
