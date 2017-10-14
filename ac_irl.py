@@ -53,6 +53,8 @@ class AC_IRL:
         # Will become list of list of tuples of the form (state, action)
         self.list_demonstrations = []
         self.read_demonstrations(state_dir='./train_normalized_round2', action_dir='./actions')
+        # Collect a set of transitions from demo trajectories for testing reward function
+        self.list_test_demo_transitions = self.get_test_transitions(self.list_demonstrations)
 
         # This is D_samp in the IRL algorithm. Will be populated while running outerloop()
         self.list_generated = []
@@ -77,6 +79,10 @@ class AC_IRL:
         self.create_training_method()
 
         self.sess = tf.Session()
+
+        self.merged = tf.summary.merge_all()
+        self.train_writer = tf.summary.FileWriter('./log', self.sess.graph)
+
         init = tf.global_variables_initializer()
         self.sess.run(init)
         
@@ -124,6 +130,35 @@ class AC_IRL:
             self.list_demonstrations.append( trajectory )
 
 
+    def get_test_transitions(self, list_trajectories):
+        """
+        Returns a list of (s,a) tuples, one tuple from each input trajectory in 
+        the input list
+
+        list_trajectories - list of list of (s,a) tuples
+        """
+        list_test_transitions = []
+        num_demos = len(list_trajectories)
+        for idx in range(num_demos):
+            traj = list_trajectories[idx]
+            # Select the transition at index equal to the trajectory index, mod traj length
+            # This is just a deterministic selection, out of many possible selection schemes
+            idx_transition = idx % 15
+            list_test_transitions.append( traj[idx_transition] )
+
+        return list_test_transitions
+
+
+    def get_trainable_var_under(self, scope_name):
+        """
+        Returns list of trainable variables nested under scope_name
+        """
+        list_vars = tf.trainable_variables()
+        filtered_list = [var for var in list_vars if scope_name in var.name]
+
+        return filtered_list
+
+
     def create_network(self):
         """
         Creates neural net representation of reward function
@@ -131,14 +166,14 @@ class AC_IRL:
         print("Inside create_network")
         # placeholder for actions in demonstration batch, shape [N, num_actions, d,d]
         # where N = number of trajectories * num actions along trajectory (should be 15)
-        self.demo_actions = tf.placeholder(dtype=tf.float32, shape=[None,self.d,self.d])
+        self.demo_actions = tf.placeholder(dtype=tf.float32, shape=[None,self.d,self.d], name='demo_actions')
         # placeholder for states in demonstration batch
         # where N = number of trajectories * num states along trajectory (should be 15)
-        self.demo_states = tf.placeholder(dtype=tf.float32, shape=[None,self.d])
+        self.demo_states = tf.placeholder(dtype=tf.float32, shape=[None,self.d], name='demo_states')
         # placeholder for actions in generated batch
-        self.gen_actions = tf.placeholder(dtype=tf.float32, shape=[None,self.d,self.d])
+        self.gen_actions = tf.placeholder(dtype=tf.float32, shape=[None,self.d,self.d], name='gen_actions')
         # placeholder for states in generated batch
-        self.gen_states = tf.placeholder(dtype=tf.float32, shape=[None,self.d])
+        self.gen_states = tf.placeholder(dtype=tf.float32, shape=[None,self.d], name='gen_states')
         with tf.variable_scope("reward") as scope:
             # rewards for state-action pairs in demonstration batch
             # expected dimension [N, 1] where N = total number of transitions in batch
@@ -269,7 +304,7 @@ class AC_IRL:
         # first term = - 1/N sum_{traj_demo} r(traj_demo)
         # where N = number of sampled demo trajectories
         # just sum up r(s,a) over all (s_t,a_t) in each trajectory over all demo trajectories
-        sum_demo_rewards = - 1.0/self.num_demo_samples * tf.reduce_sum(self.reward_demo)
+        self.sum_demo_rewards = - 1.0/self.num_demo_samples * tf.reduce_sum(self.reward_demo)
 
         # second term = log(1/M sum_{traj_sample} z_{traj_sample} exp(r(traj_sample))
         # where z_{traj_sample} = [ 1/k sum_k q_k(traj_sample) ]^{-1}
@@ -283,14 +318,22 @@ class AC_IRL:
         gen_rewards_exp = tf.exp(gen_rewards_per_traj) # [num_sampled_trajectories]
 
         # calculate vector of z_{traj_sample} = [ 1/k sum_k q_k(traj_sample) ]^{-1}
-        self.calc_z()
-        second_term = tf.log( 1.0/self.num_sampled_trajectories * tf.reduce_sum( self.vec_z * gen_rewards_exp) )
-        # second_term = tf.log( 1.0 / self.num_sampled_trajectories * tf.reduce_sum( gen_rewards_exp) ) 
+        # self.calc_z()
+        # second_term = tf.log( 1.0/self.num_sampled_trajectories * tf.reduce_sum( self.vec_z * gen_rewards_exp) )
+        self.second_term = tf.log( 1.0 / self.num_sampled_trajectories * tf.reduce_sum( gen_rewards_exp) ) 
 
         # compute loss = negative log likelihood
-        self.loss = sum_demo_rewards + second_term
-        optimizer = tf.train.AdamOptimizer(learning_rate=self.lr_reward)
-        self.r_train_op = optimizer.minimize(self.loss)
+        self.loss = self.sum_demo_rewards + self.second_term
+        tf.summary.scalar('loss', self.loss)
+        self.optimizer = tf.train.AdamOptimizer(learning_rate=self.lr_reward)
+        self.r_train_op = self.optimizer.minimize(self.loss)
+
+        for v in tf.trainable_variables():
+            tf.summary.histogram(v.op.name, v)
+        grads = self.optimizer.compute_gradients(self.loss, tf.trainable_variables())
+        for grad, var in grads:
+            if grad is not None:
+                tf.summary.histogram(var.op.name + '/gradients', grad)
 
 
     def init_w(self, d):
@@ -465,21 +508,22 @@ class AC_IRL:
         f.close()
     
 
-    def train(self, num_episodes=4000, gamma=1, constant=False, lr_critic=0.1, lr_actor=0.001, consecutive=100, file_theta='results/theta.csv', file_pi='results/pi.csv', file_reward='results/reward.csv', write_file=0, write_all=0):
+    def train(self, max_episodes=4000, stop_criteria=0.001, gamma=1, constant=False, lr_critic=0.1, lr_actor=0.001, consecutive=100, file_theta='results/theta.csv', file_pi='results/pi.csv', file_reward='results/reward.csv', write_file=0, write_all=0):
         """
         Main actor-critic training procedure that improves theta and w
 
         Input:
-        num_episodes - each episode is 16 steps (9am to 12midnight)
+        max_episodes - each episode is 16 steps (9am to 12midnight)
         gamma - temporal discount
         constant - if True, then does not decrease learning rates
         lr_critic - learning rate for value function parameter update
         lr_actor - learning rate for policy parameter update
         consecutive - number of consecutive episodes between report of average reward
         """
-        print("Running forward solver")
+        print("----- Starting train -----")
         list_reward = []
-        for episode in range(1, num_episodes+1):
+        prev_theta = self.theta
+        for episode in range(1, max_episodes+1):
             # print("forward episode ", episode)
             if write_all:
                 with open('temp.csv', 'a') as f:
@@ -556,9 +600,13 @@ class AC_IRL:
                     self.train_log(self.theta, file_theta, "%.5e")
                     self.train_log(pi, file_pi, "%.3e")
                     self.train_log(np.array([reward_avg]), file_reward, "%.3e")
+            if abs(self.theta - prev_theta) < stop_criteria:
+                print("Stop forward training at episode %d with theta %f" % (episode, self.theta))
+                break
 
         # record this policy
         self.list_policies = (self.list_policies + [self.theta])[1:]
+        print("----- Exiting train -----")
 
 
     def generate_trajectories(self, n):
@@ -625,12 +673,14 @@ class AC_IRL:
         print(self.vec_z_val)
 
 
-    def update_reward(self):
+    def update_reward(self, summary=False, iteration=0):
         """
         Improvement of reward function via gradient descent
 
+        summary - if True, then run tf.summary ops
+        iteration - global iteration count for number of reward updates so far
         """
-        print("In update_reward")
+        # print("In update_reward")
         # Sample demonstrations from self.list_demonstrations,
         # which is list of lists of tuples
         if len(self.list_demonstrations) >= self.num_demo_samples:
@@ -654,25 +704,69 @@ class AC_IRL:
         # gen_states = gen_states + demo_states
         # gen_actions = gen_actions + demo_actions
 
-        feed_dict = {self.demo_states:demo_states, self.demo_actions:demo_actions, self.gen_states:gen_states, self.gen_actions:gen_actions, self.normalizer:self.c}
+        # feed_dict = {self.demo_states:demo_states, self.demo_actions:demo_actions, self.gen_states:gen_states, self.gen_actions:gen_actions, self.normalizer:self.c}
+        feed_dict = {self.demo_states:demo_states, self.demo_actions:demo_actions, self.gen_states:gen_states, self.gen_actions:gen_actions}
 
         # debugging
-        self.debug(feed_dict)
+        # self.debug(feed_dict)
 
         # Execute gradient descent
-        _ = self.sess.run(self.r_train_op, feed_dict=feed_dict)
+        if summary:
+            summary, _, self.loss_val, self.first_term_val, self.second_term_val = self.sess.run([self.merged, self.r_train_op, self.loss, self.sum_demo_rewards, self.second_term], feed_dict=feed_dict)
+            self.train_writer.add_summary(summary, iteration)
+        else:
+            _, self.loss_val, self.first_term_val, self.second_term_val = self.sess.run([self.r_train_op, self.loss, self.sum_demo_rewards, self.second_term], feed_dict=feed_dict)
 
-        print(self.theta)
+
+    def reward_iteration(self, max_iterations=500, stop_criteria=0.01, iter_check=10):
+
+        prev_reward_demo_avg = -100
+        print("----- Starting reward_iteration -----")
+
+        for it in range(1, max_iterations+1):
+
+            self.reward_update_count += 1
+
+            if it % iter_check != 0:
+                self.update_reward(summary=False)
+            else:
+                print("Reward iteration %d" % it)
+                self.update_reward(summary=True, iteration=self.reward_update_count)
+
+                demo_states = [pair[0] for pair in self.list_test_demo_transitions]
+                demo_actions = [pair[1] for pair in self.list_test_demo_transitions]
+                num_test_demo = len(self.list_test_demo_transitions)
+                gen_states = [pair[0] for pair in self.list_test_gen_transitions]
+                gen_actions = [pair[1] for pair in self.list_test_gen_transitions]
+                num_test_gen = len(self.list_test_gen_transitions)
+                feed_dict = {self.demo_states:demo_states, self.demo_actions:demo_actions, self.gen_states:gen_states, self.gen_actions:gen_actions}
+                
+                reward_demo_val, reward_gen_val = self.sess.run([self.reward_demo, self.reward_gen], feed_dict=feed_dict )
+                # average reward across state-action pairs
+                reward_demo_avg = np.sum(reward_demo_val) / num_test_demo
+                reward_gen_avg = np.sum(reward_gen_val) / num_test_gen
+                print("Reward demo avg %f | Reward gen avg %f" % (reward_demo_avg, reward_gen_avg))
+                print("First %f | Second %f | Loss %f" % (self.first_term_val, self.second_term_val, self.loss_val))
+
+                if np.isnan(reward_demo_avg) or np.isnan(reward_gen_avg):
+                    break
+                if abs(reward_demo_avg - prev_reward_demo_avg) < stop_criteria or it == max_iterations:
+                    with open("results/reward_training.csv", 'a') as f:
+                        f.write("%f,%f\n" % (reward_demo_avg, reward_gen_avg))
+                    print("----- Exiting reward_iteration at iter %d -----" % it)
+                    break
+                prev_reward_demo_avg = reward_demo_avg
 
 
-    def outerloop(self, num_iterations=20, num_gen_from_policy=5, num_forward_episodes=20, gamma=1, constant=False, lr_critic=0.1, lr_actor=0.001):
+    def outerloop(self, num_iterations=20, num_gen_from_policy=5, max_reward_iterations=500, max_forward_episodes=500, gamma=1, constant=False, lr_critic=0.1, lr_actor=0.001):
         """
         Outer-most loop that calls functions to update reward function
         and solve the forward problem
 
-        num_iterations - number of reward function updates
-        num_generated - number of trajectories to generate using policy at each step
-        num_forward_episodes - number of episodes to run when solving forward problem
+        num_iterations - number of outerloop iterations
+        num_gen_from_policy - number of trajectories to generate using policy at each step
+        max_reward_iterations - maximum number of reward iterations to do
+        max_forward_episodes - number of episodes to run when solving forward problem
         gamma - temporal discount
         constant - if True, then does not decrease learning rates
         lr_critic - learning rate for value function parameter update
@@ -683,9 +777,13 @@ class AC_IRL:
         # are the same. This is meant to populate the data for use in reward learning,
         # before accumulating <num_policies> different policies from forward passes
         self.list_generated = self.generate_trajectories(num_gen_from_policy * self.num_policies)
+        # Initialize reward update counter for writing to tensorboard
+        self.reward_update_count = 0
+        with open("results/reward_convergence.csv", 'w') as f:
+            f.write("reward_demo_avg,reward_gen_avg\n")
 
         for it in range(num_iterations):
-            print("Iteration ", it)
+            print("########## Outerloop iteration %d ##########" % it)
             # Generate samples D_traj from current policy
             list_generated = self.generate_trajectories(num_gen_from_policy)
 
@@ -694,17 +792,73 @@ class AC_IRL:
             # kick out trajectories generated from the earliest policy
             self.list_generated = self.list_generated[num_gen_from_policy: ]
 
+            # Get a list of transitions from generated trajectories, for testing reward function
+            self.list_test_gen_transitions = self.get_test_transitions(self.list_generated)
+
             # Update reward function
-            self.update_reward()
+            self.reward_iteration(max_iterations=max_reward_iterations, stop_criteria=0.01, iter_check=10)
 
             # Solve forward problem
-            self.train(num_forward_episodes, gamma, constant, lr_critic, lr_actor, consecutive=10, file_theta='results/theta.csv', file_pi='results/pi.csv', file_reward='results/reward.csv', write_file=1, write_all=0)
+            self.train(max_forward_episodes, 0.001, gamma, constant, lr_critic, lr_actor, consecutive=100, file_theta='results/theta.csv', file_pi='results/pi.csv', file_reward='results/reward.csv', write_file=1, write_all=0)
             print("\n")
+
+
 
 
 # ---------------- End training code ---------------- #
 
 # ---------------- Evaluation code ------------------ #
+
+    def test_convergence(self, num_iterations=500, num_gen_from_policy=5, iter_check=10):
+        """
+        Trains reward network using batches from demonstration set and 
+        fixed generated set, using fixed policy
+        Checks whether reward value of a demonstration trajectory converges.
+
+        num_iterations - number of minibatch gradient descent iterations 
+        num_gen_from_policy - number of trajectories to generate using fixed policy
+        iter_check - check reward value on selected demo trajectory after every <iter_check> iterations
+        """
+        self.list_generated = self.generate_trajectories(num_gen_from_policy * self.num_policies)
+
+        # Get a list of transitions from generated trajectories, for testing reward function
+        self.list_test_gen_transitions = self.get_test_transitions(self.list_generated)
+        # Pick a demonstration trajectory
+        # demo_trajectory = self.list_demonstrations[0]
+        
+        with open("results/reward_convergence.csv", 'w') as f:
+            f.write("reward_demo_avg,reward_gen_avg\n")
+
+        for it in range(1, num_iterations+1):
+            
+            if it % iter_check != 0:
+                self.update_reward(summary=False)
+            else:
+                print("Iteration %d" % it)
+                self.update_reward(summary=True, iteration=it)
+                
+                # demo_states = [pair[0] for pair in demo_trajectory]
+                # demo_actions = [pair[1] for pair in demo_trajectory]
+                # feed_dict = {self.demo_states:demo_states, self.demo_actions:demo_actions}
+                demo_states = [pair[0] for pair in self.list_test_demo_transitions]
+                demo_actions = [pair[1] for pair in self.list_test_demo_transitions]
+                num_test_demo = len(self.list_test_demo_transitions)
+                gen_states = [pair[0] for pair in self.list_test_gen_transitions]
+                gen_actions = [pair[1] for pair in self.list_test_gen_transitions]
+                num_test_gen = len(self.list_test_gen_transitions)
+                feed_dict = {self.demo_states:demo_states, self.demo_actions:demo_actions, self.gen_states:gen_states, self.gen_actions:gen_actions}
+                
+                reward_demo_val, reward_gen_val = self.sess.run([self.reward_demo, self.reward_gen], feed_dict=feed_dict )
+                # add up reward along trajectory
+                reward_demo_avg = np.sum(reward_demo_val) / num_test_demo
+                reward_gen_avg = np.sum(reward_gen_val) / num_test_gen
+                print("Reward demo avg %f | Reward gen avg %f" % (reward_demo_avg, reward_gen_avg))
+                print("First %f | Second %f | Loss %f" % (self.first_term_val, self.second_term_val, self.loss_val))
+                with open("results/reward_convergence.csv", 'a') as f:
+                    f.write("%f,%f\n" % (reward_demo_avg, reward_gen_avg))
+                if np.isnan(reward_demo_avg) or np.isnan(reward_gen_avg):
+                    break
+                
 
     def JSD(self, P, Q):
         """
