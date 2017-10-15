@@ -28,10 +28,12 @@ import networks
 
 class AC_IRL:
 
-    def __init__(self, theta=8.86349, shift=0.16, alpha_scale=12000, d=15, lr_reward=1e-4, num_policies=10, c=2e11):
+    def __init__(self, theta=8.86349, shift=0.16, alpha_scale=12000, d=15, lr_reward=1e-4, num_policies=10, c=2e11, saved_network=None):
 
         # initialize theta
         self.theta = theta
+        # remember a initial theta as a reset value to use during IRL
+        self.theta_initial = theta
         self.shift = shift
         self.alpha_scale = alpha_scale
         # initialize weight vector (column) for value function approximation
@@ -51,8 +53,8 @@ class AC_IRL:
         self.num_start_samples = self.mat_pi0.shape[0] # number of rows
 
         # Will become list of list of tuples of the form (state, action)
-        self.list_demonstrations = []
-        self.read_demonstrations(state_dir='./train_normalized_round2', action_dir='./actions')
+        self.list_demonstrations = self.read_demonstrations(state_dir='./train_normalized_round2', action_dir='./actions', dim_action=20, start_day=1)
+        self.list_demonstrations_test = self.read_demonstrations(state_dir='./test_normalized_round2', action_dir='./actions_test', dim_action=20, start_day=15)
         # Collect a set of transitions from demo trajectories for testing reward function
         self.list_test_demo_transitions = self.get_test_transitions(self.list_demonstrations)
 
@@ -85,6 +87,12 @@ class AC_IRL:
 
         init = tf.global_variables_initializer()
         self.sess.run(init)
+
+        self.saver = tf.train.Saver()
+
+        if saved_network:
+            self.saver.restore(self.sess, "log/"+saved_network)
+            
         
     # ------------------- File processing functions ------------------ #
 
@@ -93,7 +101,7 @@ class AC_IRL:
 
     # ------------------- New and overridden functions ---------------- #
 
-    def read_demonstrations(self, state_dir, action_dir, dim_action=20):
+    def read_demonstrations(self, state_dir, action_dir, dim_action=20, start_day=1):
         """
         Reads measured trajectories to produce list of trajectories,
         where each trajectory is a list of (state, action) pairs,
@@ -102,14 +110,15 @@ class AC_IRL:
         state_dir - name of folder containing measured states for each hour of each day
         action_dir - name of folder containing measured actions for each hour of each day
         dim_action - dimension of action matrix that was recorded (will be larger than or equal to self.d)
+        start_day - day number, 1 for train group, some other number for test group
         """
         print("Inside read_demonstrations")
         num_file_action = len(os.listdir(action_dir))
         num_file_state = len(os.listdir(state_dir))
         if num_file_action != num_file_state:
             print("Weird")
-            
-        for idx_day in range(1, 1+num_file_action):
+        list_demonstrations = []
+        for idx_day in range(start_day, start_day+num_file_action):
             trajectory = []
             file_state = "trend_distribution_day%d.csv" % idx_day
             file_action = "action_day%d.txt" % idx_day
@@ -127,7 +136,8 @@ class AC_IRL:
                 # append state-action pair
                 trajectory.append( (state, action) )
             # append to list of demonstrations
-            self.list_demonstrations.append( trajectory )
+            list_demonstrations.append( trajectory )
+        return list_demonstrations
 
 
     def get_test_transitions(self, list_trajectories):
@@ -323,7 +333,8 @@ class AC_IRL:
         self.second_term = tf.log( 1.0 / self.num_sampled_trajectories * tf.reduce_sum( gen_rewards_exp) ) 
 
         # compute loss = negative log likelihood
-        self.loss = self.sum_demo_rewards + self.second_term
+        reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+        self.loss = self.sum_demo_rewards + self.second_term + sum(reg_losses)
         tf.summary.scalar('loss', self.loss)
         self.optimizer = tf.train.AdamOptimizer(learning_rate=self.lr_reward)
         self.r_train_op = self.optimizer.minimize(self.loss)
@@ -508,7 +519,7 @@ class AC_IRL:
         f.close()
     
 
-    def train(self, max_episodes=4000, stop_criteria=0.001, gamma=1, constant=False, lr_critic=0.1, lr_actor=0.001, consecutive=100, file_theta='results/theta.csv', file_pi='results/pi.csv', file_reward='results/reward.csv', write_file=0, write_all=0):
+    def train(self, max_episodes=4000, stop_criteria=0.01, gamma=1, constant=False, lr_critic=0.1, lr_actor=0.001, consecutive=100, file_theta='results/theta.csv', file_pi='results/pi.csv', file_reward='results/reward.csv', write_file=0, write_all=0):
         """
         Main actor-critic training procedure that improves theta and w
 
@@ -719,10 +730,20 @@ class AC_IRL:
 
 
     def reward_iteration(self, max_iterations=500, stop_criteria=0.01, iter_check=10):
+        """
+        max_iterations - obvious
+        stop_critiera - stop when absolute difference between reward_demo_avg and previous value is less than this value
+        iter_check - number of iterations between each check of avg reward on demo and generated samples
 
+        Return True if only ran <= 2*iter_check iterations, which indicates
+        reward network has stabilized
+        Else return False
+        """
         prev_reward_demo_avg = -100
-        print("----- Starting reward_iteration -----")
+        reward_demo_avg = 0
+        reward_gen_avg = 0
 
+        print("----- Starting reward_iteration -----")
         for it in range(1, max_iterations+1):
 
             self.reward_update_count += 1
@@ -751,11 +772,14 @@ class AC_IRL:
                 if np.isnan(reward_demo_avg) or np.isnan(reward_gen_avg):
                     break
                 if abs(reward_demo_avg - prev_reward_demo_avg) < stop_criteria or it == max_iterations:
-                    with open("results/reward_training.csv", 'a') as f:
-                        f.write("%f,%f\n" % (reward_demo_avg, reward_gen_avg))
                     print("----- Exiting reward_iteration at iter %d -----" % it)
                     break
                 prev_reward_demo_avg = reward_demo_avg
+        with open("results/reward_training.csv", 'a') as f:
+            f.write("%f,%f\n" % (reward_demo_avg, reward_gen_avg))
+        if it <= 2*iter_check:
+            return True
+        return False
 
 
     def outerloop(self, num_iterations=20, num_gen_from_policy=5, max_reward_iterations=500, max_forward_episodes=500, gamma=1, constant=False, lr_critic=0.1, lr_actor=0.001):
@@ -779,7 +803,7 @@ class AC_IRL:
         self.list_generated = self.generate_trajectories(num_gen_from_policy * self.num_policies)
         # Initialize reward update counter for writing to tensorboard
         self.reward_update_count = 0
-        with open("results/reward_convergence.csv", 'w') as f:
+        with open("results/reward_training.csv", 'w') as f:
             f.write("reward_demo_avg,reward_gen_avg\n")
 
         for it in range(num_iterations):
@@ -796,13 +820,23 @@ class AC_IRL:
             self.list_test_gen_transitions = self.get_test_transitions(self.list_generated)
 
             # Update reward function
-            self.reward_iteration(max_iterations=max_reward_iterations, stop_criteria=0.01, iter_check=10)
+            stopped_early = self.reward_iteration(max_iterations=max_reward_iterations, stop_criteria=0.001, iter_check=10)
+            if stopped_early:
+                break
 
             # Solve forward problem
-            self.train(max_forward_episodes, 0.001, gamma, constant, lr_critic, lr_actor, consecutive=100, file_theta='results/theta.csv', file_pi='results/pi.csv', file_reward='results/reward.csv', write_file=1, write_all=0)
+            self.theta = self.theta_initial
+            self.train(max_forward_episodes, 0.01, gamma, constant, lr_critic, lr_actor, consecutive=100, file_theta='results/theta.csv', file_pi='results/pi.csv', file_reward='results/reward.csv', write_file=1, write_all=0)
             print("\n")
 
+        # Save reward network
+        print("Saving network")
+        self.saver.save(self.sess, "log/model.ckpt")
 
+        # Solve forward problem completely
+        print("********** Final forward training **********")
+        self.theta = self.theta_initial
+        self.train(4000, 0.001, gamma, constant, lr_critic, lr_actor, consecutive=100, file_theta='results/theta.csv', file_pi='results/pi.csv', file_reward='results/reward.csv', write_file=1, write_all=0)
 
 
 # ---------------- End training code ---------------- #
@@ -859,6 +893,39 @@ class AC_IRL:
                 if np.isnan(reward_demo_avg) or np.isnan(reward_gen_avg):
                     break
                 
+
+    def test_reward_network(self, num_gen_from_policy=2):
+        self.list_generated = self.generate_trajectories(num_gen_from_policy * self.num_policies)        
+        gen_states = [pair[0] for traj in self.list_generated for pair in traj]
+        gen_actions = [pair[1] for traj in self.list_generated for pair in traj]
+        num_test_gen = len(self.list_generated*15)
+
+        # Evaluate on training set
+        demo_states = [pair[0] for traj in self.list_demonstrations for pair in traj]
+        demo_actions = [pair[1] for traj in self.list_demonstrations for pair in traj]
+        num_test_demo = len(self.list_demonstrations*15)
+
+        feed_dict = {self.demo_states:demo_states, self.demo_actions:demo_actions, self.gen_states:gen_states, self.gen_actions:gen_actions}
+        
+        reward_demo_val, reward_gen_val = self.sess.run([self.reward_demo, self.reward_gen], feed_dict=feed_dict )
+        # average reward across all state-action pairs
+        reward_demo_avg = np.sum(reward_demo_val) / num_test_demo
+        reward_gen_avg = np.sum(reward_gen_val) / num_test_gen
+        print("On train set: Reward demo avg %f | Reward gen avg %f" % (reward_demo_avg, reward_gen_avg))
+
+        # Now evaluate on test set
+        demo_states = [pair[0] for traj in self.list_demonstrations_test for pair in traj]
+        demo_actions = [pair[1] for traj in self.list_demonstrations_test for pair in traj]
+        num_test_demo = len(self.list_demonstrations*15)        
+
+        feed_dict = {self.demo_states:demo_states, self.demo_actions:demo_actions, self.gen_states:gen_states, self.gen_actions:gen_actions}
+        
+        reward_demo_val, reward_gen_val = self.sess.run([self.reward_demo, self.reward_gen], feed_dict=feed_dict )
+        # average reward across all state-action pairs
+        reward_demo_avg = np.sum(reward_demo_val) / num_test_demo
+        reward_gen_avg = np.sum(reward_gen_val) / num_test_gen
+        print("On test set: Reward demo avg %f | Reward gen avg %f" % (reward_demo_avg, reward_gen_avg))
+
 
     def JSD(self, P, Q):
         """
