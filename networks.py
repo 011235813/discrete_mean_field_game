@@ -31,14 +31,17 @@ def r_net(state_input, action_input, f1=2, k1=5, f2=4, k2=3, d=15):
     # flatten to vector
     conv2_flat = tf.reshape(conv2, [-1, f2*d*d]) # batch_size x (f2*d*d)
     # feed conv output to linear layer before combining with state vector
-    fc3 = tf.contrib.layers.fully_connected(inputs=conv2_flat, num_outputs=64, activation_fn=tf.nn.relu, scope='fc3') # batch_size x 64
+    fc3 = tf.contrib.layers.fully_connected(inputs=conv2_flat, num_outputs=64, activation_fn=tf.nn.relu, weights_regularizer=tf.contrib.layers.l1_l2_regularizer(), scope='fc3') # batch_size x 64
+    dropout3 = tf.contrib.layers.dropout(fc3, keep_prob=0.4, scope='dropout3')
     # for each sample in batch, concatenate conved action with state
-    fc3_action = tf.concat([fc3, state_input], 1)
+    fc3_action = tf.concat([dropout3, state_input], 1)
     # one more fc layer
-    fc4 = tf.contrib.layers.fully_connected(inputs=fc3_action, num_outputs=64, activation_fn=tf.nn.relu, scope='fc4')
-    fc5 = tf.contrib.layers.fully_connected(inputs=fc4, num_outputs=16, activation_fn=tf.nn.relu, scope='fc5')
+    fc4 = tf.contrib.layers.fully_connected(inputs=fc3_action, num_outputs=64, activation_fn=tf.nn.relu, weights_regularizer=tf.contrib.layers.l1_l2_regularizer(), scope='fc4')
+    dropout4 = tf.contrib.layers.dropout(fc4, keep_prob=0.4, scope='dropout4')
+    fc5 = tf.contrib.layers.fully_connected(inputs=dropout4, num_outputs=16, activation_fn=tf.nn.relu, weights_regularizer=tf.contrib.layers.l1_l2_regularizer(), scope='fc5')
+    dropout5 = tf.contrib.layers.dropout(fc5, keep_prob=0.4, scope='dropout5')
     # final output layer without nonlinearity
-    out = tf.contrib.layers.fully_connected(inputs=fc5, num_outputs=1, activation_fn=tf.nn.tanh, scope='out')
+    out = tf.contrib.layers.fully_connected(inputs=dropout5, num_outputs=1, activation_fn=tf.nn.tanh, scope='out')
 
     return out
 
