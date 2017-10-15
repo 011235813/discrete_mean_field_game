@@ -614,6 +614,7 @@ class AC_IRL:
             if abs(self.theta - prev_theta) < stop_criteria:
                 print("Stop forward training at episode %d with theta %f" % (episode, self.theta))
                 break
+            prev_theta = self.theta
 
         # record this policy
         self.list_policies = (self.list_policies + [self.theta])[1:]
