@@ -51,7 +51,8 @@ def plot_barchart():
 def plot_reward_convergence(filename='reward_convergence.csv', outfile='plots_irl/reward_convergence.pdf'):
 
     df = pd.read_table('results'+'/'+filename, delimiter=',', header=0)
-    indices = df.index.values
+    # indices = df.index.values
+    indices = df['iteration']
     fig = plt.figure()
     plt.plot(indices, df['reward_demo_avg'], label='demostration')
     plt.plot(indices, df['reward_gen_avg'], label='generated')
@@ -62,3 +63,47 @@ def plot_reward_convergence(filename='reward_convergence.csv', outfile='plots_ir
     pp = PdfPages(outfile)
     pp.savefig(fig)
     pp.close()
+
+
+def test_histogram(normed=True):
+    mu, sigma = 100, 15
+    # x = mu + sigma * np.random.randn(10000)
+    x = np.ones(100)
+    mu, sigma = 85, 15
+    # y = mu + sigma * np.random.randn(10000)
+    y = np.ones(100) * 2
+    mu, sigma = 115, 15
+    # z = mu + sigma * np.random.randn(10000)
+    z = np.ones(100) * -1
+
+    fig = plt.figure(1)
+    plt.subplot(311)
+    n, bins, patches = plt.hist(x, 50, normed=normed, facecolor='g', alpha=0.75)
+    plt.xlabel('Smarts')
+    plt.ylabel('Probability')
+    plt.title('Histogram of IQ')
+    plt.text(60, .025, r'$\mu=100,\ \sigma=15$')
+    # plt.axis([40, 160, 0, 0.03])
+
+    plt.subplot(312)
+    n, bins, patches = plt.hist(y, 50, normed=normed, facecolor='r', alpha=0.75)
+    plt.xlabel('Smarts')
+    plt.ylabel('Probability')
+    plt.title('Histogram of IQ')
+    plt.text(60, .025, r'$\mu=85,\ \sigma=15$')
+    # plt.axis([40, 160, 0, 0.03])
+
+    plt.subplot(313)
+    n, bins, patches = plt.hist(z, 50, normed=normed, facecolor='b', alpha=0.75)
+    plt.xlabel('Smarts')
+    plt.ylabel('Probability')
+    plt.title('Histogram of IQ')
+    plt.text(60, .025, r'$\mu=115,\ \sigma=15$')
+    # plt.axis([40, 160, 0, 0.03])        
+
+    pp = PdfPages("test_histogram.pdf")
+    pp.savefig(fig)
+    pp.close()
+
+    # plt.grid(True)
+    # plt.show()    
