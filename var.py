@@ -13,7 +13,7 @@ from statsmodels.tsa.stattools import adfuller
 class var():
 
     #def __init__(self, train='train_normalized', test='test_normalized', d=21):
-    def __init__(self, d=21):
+    def __init__(self, d=15):
         """
         Arguments:
         d - number to topics to use (includes the null topic at index 0)
@@ -39,7 +39,7 @@ class var():
 #        self.results = self.model.fit(2)
 
 
-    def read_data(self, train='train_normalized2', train_start=1, train_end=35, test='test_normalized2', test_start=36, test_end=45):
+    def read_data(self, train='train_normalized_round2', train_start=1, train_end=16, test='test_normalized_round2', test_start=17, test_end=20):
         """
         Arguments:
         train - directory that holds normalized training data
@@ -53,9 +53,8 @@ class var():
         print("Reading train files")
         list_df = []
         idx = 0
-        # for filename in os.listdir(train):
         for num_day in range(train_start, train_end+1):
-            filename = "trend_distribution_day%d_reordered.csv" % num_day
+            filename = "trend_distribution_day%d.csv" % num_day
             print(filename)
             path_to_file = train + '/' + filename
             df = pd.read_csv(path_to_file, sep=' ', header=None, names=range(self.d), usecols=range(self.d), dtype=np.float64)
@@ -69,9 +68,8 @@ class var():
         
         print("Reading test files")
         list_df = []
-        # for filename in os.listdir(test):
         for num_day in range(test_start, test_end+1):
-            filename = "trend_distribution_day%d_reordered.csv" % num_day
+            filename = "trend_distribution_day%d.csv" % num_day
             print(filename)
             path_to_file = test + '/' + filename
             df = pd.read_csv(path_to_file, sep=' ', header=None, names=range(self.d), usecols=range(self.d), dtype=np.float64)
@@ -120,7 +118,7 @@ class var():
         self.results = self.model.fit(maxlags=max_lag, ic='aic')
 
 
-    def cross_validation(self, lag_range=range(1,21), validation_size=10, repetitions=5):
+    def cross_validation(self, lag_range=range(1,21), validation_size=5, repetitions=5):
         """
         Arguments:
         lag_range - the range of lag values to try
@@ -132,6 +130,7 @@ class var():
         num_selected = num_training_points - validation_size
         # For each lag value
         for lag in lag_range:
+            print("Lag %d" % lag)
             avg_error = 0
             # Repeat for repetition times
             for rep in range(0, repetitions):
@@ -166,7 +165,7 @@ class var():
 
         print("Min error is", np.min(list_error))
         print("Best lag value is", lag_range[np.argmin(list_error)])
-        f = open('var_cross_val.csv', 'a')
+        f = open('eval_var_round2/var_cross_validation.csv', 'a')
         s = ','.join(map(str, lag_range))
         s += '\n'
         f.write(s)
