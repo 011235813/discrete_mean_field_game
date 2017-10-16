@@ -28,9 +28,10 @@ import networks
 
 class AC_IRL:
 
-    def __init__(self, theta=8.86349, shift=0.16, alpha_scale=12000, d=15, lr_reward=1e-4, num_policies=10, c=2e11, reg='none', n_fc3=4, n_fc4=4, saved_network=None):
+    def __init__(self, theta=8.86349, shift=0.16, alpha_scale=12000, d=15, lr_reward=1e-4, num_policies=10, c=2e11, reg='none', n_fc3=4, n_fc4=4, saved_network=None, use_tf=True):
         """
         reg - 'none', 'dropout', 'l1l2', 'dropout_l1l2'
+        use_tf - if True, create tensorflow graphs as usual, else do not instantiate graph
         """
 
         # initialize theta
@@ -70,7 +71,8 @@ class AC_IRL:
         self.list_generated = []
 
         # Create neural net representation of reward function
-        self.create_network()
+        if use_tf:
+            self.create_network()
 
         # number of demonstration trajectories to sample each time for reward learning
         self.num_demo_samples = 5
@@ -82,24 +84,22 @@ class AC_IRL:
         # list of policies parameterized by theta, beginning with the initialized theta
         self.list_policies = [theta] * self.num_policies
 
-        # vector of importance sampling weights in loss function
-        # self.vec_z = tf.Variable(np.zeros(self.num_sampled_trajectories), dtype=tf.float32)
-
-        # Define gradient descent steps for reward learning
-        self.create_training_method()
-
-        self.sess = tf.Session()
-
-        self.merged = tf.summary.merge_all()
-        self.train_writer = tf.summary.FileWriter('./log', self.sess.graph)
-
-        init = tf.global_variables_initializer()
-        self.sess.run(init)
-
-        self.saver = tf.train.Saver()
-
-        if saved_network:
-            self.saver.restore(self.sess, "log/"+saved_network)
+        if use_tf:
+            # Define gradient descent steps for reward learning
+            self.create_training_method()
+            
+            self.sess = tf.Session()
+            
+            self.merged = tf.summary.merge_all()
+            self.train_writer = tf.summary.FileWriter('./log', self.sess.graph)
+            
+            init = tf.global_variables_initializer()
+            self.sess.run(init)
+            
+            self.saver = tf.train.Saver()
+            
+            if saved_network:
+                self.saver.restore(self.sess, "log/"+saved_network)
             
         
     # ------------------- File processing functions ------------------ #
@@ -865,7 +865,7 @@ class AC_IRL:
 
 # ---------------- Evaluation code ------------------ #
 
-    def test_convergence(self, num_iterations=500, num_gen_from_policy=5, iter_check=10):
+    def test_convergence(self, num_iterations=500, num_gen_from_policy=5, iter_check=10, filename='reward_convergence.csv'):
         """
         Trains reward network using batches from demonstration set and 
         fixed generated set, using fixed policy
@@ -878,12 +878,11 @@ class AC_IRL:
         self.list_generated = self.generate_trajectories(num_gen_from_policy * self.num_policies)
 
         # Get a list of transitions from generated trajectories, for testing reward function
-        self.list_eval_gen_transitions = self.get_eval_transitions(self.list_generated)
-        # Pick a demonstration trajectory
-        # demo_trajectory = self.list_demonstrations[0]
+        self.list_eval_gen_transitions = [pair for traj in self.list_generated for pair in traj]
+        # self.list_eval_gen_transitions = self.get_eval_transitions(self.list_generated)
         
-        with open("results/reward_convergence.csv", 'w') as f:
-            f.write("reward_demo_avg,reward_gen_avg\n")
+        with open("results/" + filename, 'w') as f:
+            f.write("iteration,reward_demo_avg,reward_gen_avg\n")
 
         for it in range(1, num_iterations+1):
             
@@ -893,9 +892,6 @@ class AC_IRL:
                 print("Iteration %d" % it)
                 self.update_reward(summary=True, iteration=it)
                 
-                # demo_states = [pair[0] for pair in demo_trajectory]
-                # demo_actions = [pair[1] for pair in demo_trajectory]
-                # feed_dict = {self.demo_states:demo_states, self.demo_actions:demo_actions}
                 demo_states = [pair[0] for pair in self.list_eval_demo_transitions]
                 demo_actions = [pair[1] for pair in self.list_eval_demo_transitions]
                 num_test_demo = len(self.list_eval_demo_transitions)
@@ -905,50 +901,119 @@ class AC_IRL:
                 feed_dict = {self.demo_states:demo_states, self.demo_actions:demo_actions, self.gen_states:gen_states, self.gen_actions:gen_actions}
                 
                 reward_demo_val, reward_gen_val = self.sess.run([self.reward_demo, self.reward_gen], feed_dict=feed_dict )
-                # add up reward along trajectory
+                # average reward across all transitions
                 reward_demo_avg = np.sum(reward_demo_val) / num_test_demo
                 reward_gen_avg = np.sum(reward_gen_val) / num_test_gen
                 print("Reward demo avg %f | Reward gen avg %f" % (reward_demo_avg, reward_gen_avg))
                 print("First %f | Second %f | Loss %f" % (self.first_term_val, self.second_term_val, self.loss_val))
-                with open("results/reward_convergence.csv", 'a') as f:
-                    f.write("%f,%f\n" % (reward_demo_avg, reward_gen_avg))
+                with open("results/" + filename, 'a') as f:
+                    f.write("%d,%f,%f\n" % (it, reward_demo_avg, reward_gen_avg))
                 if np.isnan(reward_demo_avg) or np.isnan(reward_gen_avg):
                     break
                 
 
-    def test_reward_network(self, num_gen_from_policy=2):
-        self.list_generated = self.generate_trajectories(num_gen_from_policy * self.num_policies)        
+    def test_reward_network(self):
+        """
+        Given a fixed reward network, evaluate
+        average reward over all transitions in training demonstrations
+        average reward over all transitions in test (or validation) demonstrations
+        average reward over all transitions in generated trajectories
+        """
+
+        # Evaluate on demonstration training set and generated set
+        num_demos = len(self.list_demonstrations)
+        self.list_generated = self.generate_trajectories(num_demos)
         gen_states = [pair[0] for traj in self.list_generated for pair in traj]
         gen_actions = [pair[1] for traj in self.list_generated for pair in traj]
-        num_test_gen = len(self.list_generated*15)
+        num_test_gen = len(gen_states)
 
-        # Evaluate on training set
         demo_states = [pair[0] for traj in self.list_demonstrations for pair in traj]
         demo_actions = [pair[1] for traj in self.list_demonstrations for pair in traj]
-        num_test_demo = len(self.list_demonstrations*15)
+        num_test_demo = len(demo_states)
 
         feed_dict = {self.demo_states:demo_states, self.demo_actions:demo_actions, self.gen_states:gen_states, self.gen_actions:gen_actions}
-        
-        reward_demo_val, reward_gen_val = self.sess.run([self.reward_demo, self.reward_gen], feed_dict=feed_dict )
-        # average reward across all state-action pairs
-        reward_demo_avg_train = np.sum(reward_demo_val) / num_test_demo
+        reward_demo_train, reward_gen_val = self.sess.run([self.reward_demo, self.reward_gen], feed_dict=feed_dict )
+        reward_demo_avg_train = np.sum(reward_demo_train) / num_test_demo
         reward_gen_avg = np.sum(reward_gen_val) / num_test_gen
-        print("On train set: Reward demo avg %f | Reward gen avg %f" % (reward_demo_avg_train, reward_gen_avg))
 
-        # Now evaluate on validation set
+        # Evaluate on demonstration validation or test set
         demo_states = [pair[0] for traj in self.list_demonstrations_test for pair in traj]
         demo_actions = [pair[1] for traj in self.list_demonstrations_test for pair in traj]
-        num_test_demo = len(self.list_demonstrations*15)        
+        num_test_demo = len(demo_states)
 
-        feed_dict = {self.demo_states:demo_states, self.demo_actions:demo_actions, self.gen_states:gen_states, self.gen_actions:gen_actions}
+        feed_dict = {self.demo_states:demo_states, self.demo_actions:demo_actions}
+        reward_demo_test = self.sess.run(self.reward_demo, feed_dict=feed_dict )
+        reward_demo_avg_test = np.sum(reward_demo_test) / num_test_demo
+
+        print("Avg reward demo train %f | Avg reward demo test %f | Avg reward gen %f" % (reward_demo_avg_train, reward_demo_avg_test, reward_gen_avg))
+
+        return reward_demo_avg_train, reward_demo_avg_test, reward_gen_avg
+
+
+    def plot_reward_histogram(self, theta_good, theta_bad, filename='reward_histogram.pdf'):
+        """
+        Generate three histograms
+        1. distribution of reward for demo transitions
+        2. distribution of reward for good generated transitions
+        3. distribution of reward for bad generated transitions
+
+        theta_good - learned theta for generating good transitions
+        theta_bad - some random bad theta for generating bad transitions
+        """
+
+        # Get rewards on demo transitions
+        demo_states = [pair[0] for traj in self.list_demonstrations for pair in traj]
+        demo_actions = [pair[1] for traj in self.list_demonstrations for pair in traj]
+        feed_dict = {self.demo_states:demo_states, self.demo_actions:demo_actions}
+        reward_demo_val = self.sess.run(self.reward_demo, feed_dict=feed_dict)
+        print(reward_demo_val)
+
+        # Generate list of trajectories using good policy
+        num_demos = len(self.list_demonstrations)
+        self.theta = theta_good
+        list_generated_good = self.generate_trajectories(num_demos)
+        gen_states = [pair[0] for traj in list_generated_good for pair in traj]
+        gen_actions = [pair[1] for traj in list_generated_good for pair in traj]
+        feed_dict = {self.gen_states:gen_states, self.gen_actions:gen_actions}
+        reward_gen_good = self.sess.run(self.reward_gen, feed_dict=feed_dict)
+        print(reward_gen_good)
+
+        # Generate list of trajectories using bad policy
+        self.theta = theta_bad
+        list_generated_bad = self.generate_trajectories(num_demos)
+        gen_states = [pair[0] for traj in list_generated_bad for pair in traj]
+        gen_actions = [pair[1] for traj in list_generated_bad for pair in traj]
+        feed_dict = {self.gen_states:gen_states, self.gen_actions:gen_actions}
+        reward_gen_bad = self.sess.run(self.reward_gen, feed_dict=feed_dict)        
+        print(reward_gen_bad)
+
+        fig = plt.figure(1)
+        plt.subplot(311)
+        plt.hist(reward_demo_val, bins=30, normed=0, facecolor='g')
+        plt.ylabel('Proportion')
+        plt.axis([-1,1])
+        # plt.xlabel('Reward')
+        # plt.title('Histogram of reward of demonstration transitions')
+
+        plt.subplot(312)
+        plt.hist(reward_gen_good, bins=30, normed=0, facecolor='b')
+        plt.ylabel('Proportion')
+        plt.axis([-1,1])
+        # plt.xlabel('Reward')
+        # plt.title('Histogram of reward of generated transitions from learned policy')
+
+        plt.subplot(313)
+        plt.hist(reward_gen_bad, bins=30, normed=0, facecolor='r')
+        plt.ylabel('Proportion')
+        plt.xlabel('Reward')
+        plt.axis([-1,1])
+        # plt.title('Histogram of reward on generated transitions from random policy')
         
-        reward_demo_val, reward_gen_val = self.sess.run([self.reward_demo, self.reward_gen], feed_dict=feed_dict )
-        # average reward across all state-action pairs
-        reward_demo_avg_val = np.sum(reward_demo_val) / num_test_demo
-        reward_gen_avg = np.sum(reward_gen_val) / num_test_gen
-        print("On validation set: Reward demo avg %f | Reward gen avg %f" % (reward_demo_avg_val, reward_gen_avg))
+        pp = PdfPages('plots_irl/'+filename)
+        pp.savefig(fig)
+        pp.close()
 
-        return reward_demo_avg_train, reward_demo_avg_val
+        return reward_demo_val, reward_gen_good, reward_gen_bad
 
 
     def JSD(self, P, Q):
@@ -1000,7 +1065,7 @@ class AC_IRL:
         return mat_trajectory
 
 
-    def evaluate(self, theta=8.86349, shift=0.5, alpha_scale=1e4, d=21, episode_length=16, indir='test_normalized', outfile='test_eval.csv', write_header=0):
+    def evaluate(self, theta=8.86349, shift=0.5, alpha_scale=1e4, d=15, episode_length=16, indir='test_normalized_round2', outfile='eval_mfg/validation.csv', write_header=0):
         """
         Main evaluation function
 
