@@ -1,4 +1,6 @@
 import numpy as np
+from numpy.linalg import norm
+from scipy.stats import entropy
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from pylab import flipud
@@ -66,23 +68,41 @@ def plot_reward_convergence(filename='reward_convergence.csv', outfile='plots_ir
     pp.close()
 
 
-def test_histogram(normed=True):
+def JSD(P, Q):
+    """
+    Arguments:
+    P,Q - discrete probability distribution
+    
+    Return:
+    Jensen-Shannon divergence
+    """
+
+    # Replace all zeros by 1e-100
+    P[P==0] = 1e-100
+    Q[Q==0] = 1e-100
+
+    P_normed = P / norm(P, ord=1)
+    Q_normed = Q / norm(Q, ord=1)
+    M = 0.5 * (P + Q)
+
+    return 0.5 * (entropy(P,M) + entropy(Q,M))
+
+
+def test_histogram(normed=False):
     mu, sigma = 100, 15
-    x = mu + sigma * np.random.randn(100)
+    x = mu + sigma * np.random.randn(10000)
     # x = np.ones(100)
     mu, sigma = 85, 15
-    y = mu + sigma * np.random.randn(100)
+    y = mu + sigma * np.random.randn(10000)
     # y = np.ones(100) * 2
-    mu, sigma = 115, 15
-    z = mu + sigma * np.random.randn(100)
+    mu, sigma = 100, 15
+    z = mu + sigma * np.random.randn(10000)
     # z = np.ones(100) * -1
 
     fig = plt.figure(1)
     plt.subplot(311)
-    n, bins, patches = plt.hist(x, 50, normed=normed, facecolor='g', alpha=0.75)
+    n_x, bins, patches = plt.hist(x, 50, normed=normed, facecolor='g', alpha=0.75)
     axes = plt.gca()
-    print(n)
-    print(bins)
     # y_min, y_max = axes.get_ylim()
     # print(y_min, y_max)
     plt.xlabel('Smarts')
@@ -93,7 +113,7 @@ def test_histogram(normed=True):
     # plt.axis([40, 160, y_min, y_max])
 
     plt.subplot(312)
-    n, bins, patches = plt.hist(y, 50, normed=normed, facecolor='r', alpha=0.75)
+    n_y, bins, patches = plt.hist(y, 50, normed=normed, facecolor='r', alpha=0.75)
     axes = plt.gca()
     y_min, y_max = axes.get_ylim()
     print(y_min, y_max)
@@ -105,7 +125,7 @@ def test_histogram(normed=True):
     # plt.axis([40, 160, y_min, y_max])
 
     plt.subplot(313)
-    n, bins, patches = plt.hist(z, 50, normed=normed, facecolor='b', alpha=0.75)
+    n_z, bins, patches = plt.hist(z, 50, normed=normed, facecolor='b', alpha=0.75)
     axes = plt.gca()
     y_min, y_max = axes.get_ylim()
     print(y_min, y_max)
@@ -115,6 +135,8 @@ def test_histogram(normed=True):
     plt.text(60, .025, r'$\mu=115,\ \sigma=15$')
     # plt.axis([40, 160, 0, 0.03])        
     # plt.axis([40, 160, y_min, y_max])
+
+    print(JSD(n_x, n_y), JSD(n_x,n_z))
 
     pp = PdfPages("test_histogram.pdf")
     pp.savefig(fig)
