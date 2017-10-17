@@ -16,7 +16,8 @@ import platform
 if (platform.system() == "Windows"):
     import pandas as pd
     import matplotlib.pylab as plt
-    from matplotlib.backends.backend_pdf import PdfPages    
+    from matplotlib.backends.backend_pdf import PdfPages
+    from pylab import flipud
     import var
 
 import os
@@ -28,11 +29,12 @@ import networks
 
 class AC_IRL:
 
-    def __init__(self, theta=8.86349, shift=0.16, alpha_scale=12000, d=15, lr_reward=1e-4, num_policies=10, c=2e11, reg='none', n_fc3=4, n_fc4=4, saved_network=None, use_tf=True):
+    def __init__(self, theta=8.86349, shift=0.16, alpha_scale=12000, d=15, lr_reward=1e-4, num_policies=10, c=2e11, reg='none', n_fc3=4, n_fc4=4, saved_network=None, use_tf=True, summarize=False):
         """
         reg - 'none', 'dropout', 'l1l2', 'dropout_l1l2'
         use_tf - if True, create tensorflow graphs as usual, else do not instantiate graph
         """
+        self.summarize = summarize
 
         # initialize theta
         self.theta = theta
@@ -61,8 +63,8 @@ class AC_IRL:
         self.num_start_samples = self.mat_pi0.shape[0] # number of rows
 
         # Will become list of list of tuples of the form (state, action)
-        self.list_demonstrations = self.read_demonstrations(state_dir='./train_normalized_round2', action_dir='./actions', dim_action=20, start_day=1)
-        self.list_demonstrations_test = self.read_demonstrations(state_dir='./test_normalized_round2', action_dir='./actions_test', dim_action=20, start_day=17)
+        self.list_demonstrations = self.read_demonstrations(state_dir='./train_normalized_round2', action_dir='./actions_2', dim_action=20, start_day=1)
+        self.list_demonstrations_test = self.read_demonstrations(state_dir='./test_normalized_round2', action_dir='./actions_test_2', dim_action=20, start_day=17)
         # Collect a set of transitions from demo trajectories for testing reward function
         self.list_eval_demo_transitions = [pair for traj in self.list_demonstrations for pair in traj]
         # self.list_eval_demo_transitions = self.get_eval_transitions(self.list_demonstrations)
@@ -90,8 +92,9 @@ class AC_IRL:
             
             self.sess = tf.Session()
             
-            self.merged = tf.summary.merge_all()
-            self.train_writer = tf.summary.FileWriter('./log', self.sess.graph)
+            if summarize:
+                self.merged = tf.summary.merge_all()
+                self.train_writer = tf.summary.FileWriter('./log', self.sess.graph)
             
             init = tf.global_variables_initializer()
             self.sess.run(init)
@@ -103,6 +106,49 @@ class AC_IRL:
             
         
     # ------------------- File processing functions ------------------ #
+
+    def convert_action(self, state_dir, action_dir, action_write_dir, dim_action=20, start_day=1):
+        """
+        For each action matrix, if row is all zeros except single 1 on the diagonal entry, 
+        check whether the person actually stayed in topic, or whether 
+        the number of people was zero and the 1 was added artificially during recording
+
+        dim_action - dimension of action matrix that was recorded (will be larger than or equal to self.d)
+        """
+        num_file_action = len(os.listdir(action_dir))
+        num_file_state = len(os.listdir(state_dir))
+        if num_file_action != num_file_state:
+            print("Weird")
+        list_demonstrations = []
+        for idx_day in range(start_day, start_day+num_file_action):        
+            file_state = "trend_distribution_day%d.csv" % idx_day
+            file_action = "action_day%d.txt" % idx_day
+            # read states for this day
+            states = pd.read_table(state_dir+'/'+file_state, delimiter=' ', header=None)
+            # convert to np matrix
+            states = states.as_matrix() # 16 x d
+            # read actions for this day, automatically skips over blank lines
+            actions = pd.read_table(action_dir+'/'+file_action, delimiter=' ', header=None)
+            actions = actions.as_matrix() # (15*d) * d
+
+            f = open(action_write_dir+'/action_day%d.txt' % idx_day, 'a')
+            for hour in range(0,15):
+                state = states[hour, 0:self.d]
+                # state_next = states[hour+1, 0:self.d]
+                # read everything
+                action = actions[hour*dim_action:(hour+1)*dim_action, :]
+                for topic in range(0, self.d):
+                    if action[topic, topic] == 1.0 and state[topic] == 0:
+                        # keep same number of entries, but normalize against self.d
+                        action[topic, :] = np.ones(dim_action) / self.d
+                    action[topic].tofile(f, sep=' ', format='%.3e')
+                    f.write('\n')
+                # write the rest without change
+                for topic in range(self.d, dim_action):
+                    action[topic].tofile(f, sep=' ', format='%.3e')
+                    f.write('\n')
+                f.write('\n')
+            f.close()
 
     # ------------------- End file processing functions ------------------ #
 
@@ -359,16 +405,19 @@ class AC_IRL:
             self.loss = self.sum_demo_rewards + self.second_term + sum(reg_losses)
         else:
             self.loss = self.sum_demo_rewards + self.second_term
-        tf.summary.scalar('loss', self.loss)
+
+        if self.summarize:
+            tf.summary.scalar('loss', self.loss)
         self.optimizer = tf.train.AdamOptimizer(learning_rate=self.lr_reward)
         self.r_train_op = self.optimizer.minimize(self.loss)
 
-        for v in tf.trainable_variables():
-            tf.summary.histogram(v.op.name, v)
-        grads = self.optimizer.compute_gradients(self.loss, tf.trainable_variables())
-        for grad, var in grads:
-            if grad is not None:
-                tf.summary.histogram(var.op.name + '/gradients', grad)
+        if self.summarize:
+            for v in tf.trainable_variables():
+                tf.summary.histogram(v.op.name, v)
+            grads = self.optimizer.compute_gradients(self.loss, tf.trainable_variables())
+            for grad, var in grads:
+                if grad is not None:
+                    tf.summary.histogram(var.op.name + '/gradients', grad)
 
 
     def init_w(self, d):
@@ -746,7 +795,7 @@ class AC_IRL:
         # self.debug(feed_dict)
 
         # Execute gradient descent
-        if summary:
+        if summary and self.summarize:
             summary, _, self.loss_val, self.first_term_val, self.second_term_val = self.sess.run([self.merged, self.r_train_op, self.loss, self.sum_demo_rewards, self.second_term], feed_dict=feed_dict)
             self.train_writer.add_summary(summary, iteration)
         else:
@@ -776,7 +825,7 @@ class AC_IRL:
                 self.update_reward(summary=False)
             else:
                 print("Reward iteration %d" % it)
-                self.update_reward(summary=True, iteration=self.reward_update_count)
+                self.update_reward(summary=False, iteration=self.reward_update_count)
 
                 demo_states = [pair[0] for pair in self.list_eval_demo_transitions]
                 demo_actions = [pair[1] for pair in self.list_eval_demo_transitions]
@@ -890,7 +939,7 @@ class AC_IRL:
                 self.update_reward(summary=False)
             else:
                 print("Iteration %d" % it)
-                self.update_reward(summary=True, iteration=it)
+                self.update_reward(summary=False, iteration=it)
                 
                 demo_states = [pair[0] for pair in self.list_eval_demo_transitions]
                 demo_actions = [pair[1] for pair in self.list_eval_demo_transitions]
@@ -950,7 +999,7 @@ class AC_IRL:
         return reward_demo_avg_train, reward_demo_avg_test, reward_gen_avg
 
 
-    def plot_reward_histogram(self, theta_good, theta_bad, filename='reward_histogram.pdf'):
+    def plot_reward_histogram(self, theta_good, theta_bad, xmin, xmax, ymin, ymax, x_text, y_text, filename='reward_histogram.pdf'):
         """
         Generate three histograms
         1. distribution of reward for demo transitions
@@ -959,6 +1008,7 @@ class AC_IRL:
 
         theta_good - learned theta for generating good transitions
         theta_bad - some random bad theta for generating bad transitions
+        xmin, xmax, ymin, ymax - axis boundaries
         """
 
         # Get rewards on demo transitions
@@ -966,7 +1016,6 @@ class AC_IRL:
         demo_actions = [pair[1] for traj in self.list_demonstrations for pair in traj]
         feed_dict = {self.demo_states:demo_states, self.demo_actions:demo_actions}
         reward_demo_val = self.sess.run(self.reward_demo, feed_dict=feed_dict)
-        print(reward_demo_val)
 
         # Generate list of trajectories using good policy
         num_demos = len(self.list_demonstrations)
@@ -976,7 +1025,6 @@ class AC_IRL:
         gen_actions = [pair[1] for traj in list_generated_good for pair in traj]
         feed_dict = {self.gen_states:gen_states, self.gen_actions:gen_actions}
         reward_gen_good = self.sess.run(self.reward_gen, feed_dict=feed_dict)
-        print(reward_gen_good)
 
         # Generate list of trajectories using bad policy
         self.theta = theta_bad
@@ -985,35 +1033,86 @@ class AC_IRL:
         gen_actions = [pair[1] for traj in list_generated_bad for pair in traj]
         feed_dict = {self.gen_states:gen_states, self.gen_actions:gen_actions}
         reward_gen_bad = self.sess.run(self.reward_gen, feed_dict=feed_dict)        
-        print(reward_gen_bad)
 
         fig = plt.figure(1)
-        plt.subplot(311)
+        plt.subplot(211)
         plt.hist(reward_demo_val, bins=30, normed=0, facecolor='g')
-        plt.ylabel('Proportion')
-        plt.axis([-1,1])
+        plt.ylabel('Count')
+        plt.axis([xmin, xmax, ymin, ymax])
         # plt.xlabel('Reward')
-        # plt.title('Histogram of reward of demonstration transitions')
+        plt.title('Histogram of reward for demo and generated transitions')
+        plt.text(x_text, y_text,  r'Demo')
 
-        plt.subplot(312)
+        plt.subplot(212)
         plt.hist(reward_gen_good, bins=30, normed=0, facecolor='b')
-        plt.ylabel('Proportion')
-        plt.axis([-1,1])
-        # plt.xlabel('Reward')
+        plt.ylabel('Count')
+        plt.axis([xmin, xmax, ymin, ymax])
+        plt.text(x_text, y_text, r'Generated')
+        plt.xlabel('Reward')
         # plt.title('Histogram of reward of generated transitions from learned policy')
 
-        plt.subplot(313)
-        plt.hist(reward_gen_bad, bins=30, normed=0, facecolor='r')
-        plt.ylabel('Proportion')
-        plt.xlabel('Reward')
-        plt.axis([-1,1])
+        # plt.subplot(313)
+        # plt.hist(reward_gen_bad, bins=30, normed=0, facecolor='r')
+        # plt.ylabel('Count')
+        # plt.xlabel('Reward')
+        # plt.axis([xmin, xmax, ymin, plt.ylim()[1]])
+        # plt.text(x_text, y_text, r'Generated ($\theta$=%f)'%theta_bad)
         # plt.title('Histogram of reward on generated transitions from random policy')
         
         pp = PdfPages('plots_irl/'+filename)
         pp.savefig(fig)
         pp.close()
 
-        return reward_demo_val, reward_gen_good, reward_gen_bad
+
+    def plot_action_heatmap(self, theta_good, theta_bad, filename='action_heatmap.pdf'):
+        """
+        Does not require reward network. Generate three heatmaps:
+        1. distribution of averaged demo actions
+        2. distribution of averaged good generated actions
+        3. distribution of averaged bad generated actions
+
+        theta_good - learned theta for generating good transitions
+        theta_bad - some random bad theta for generating bad transitions
+        """
+        # Get demo actions
+        demo_actions = [pair[1] for traj in self.list_demonstrations for pair in traj]
+        demo_actions_arr = np.asarray(demo_actions)
+        demo_avg = np.mean(demo_actions_arr, axis=0)
+
+        # Generate list of trajectories using good policy
+        num_demos = len(self.list_demonstrations)
+        self.theta = theta_good
+        list_generated_good = self.generate_trajectories(num_demos)
+        gen_actions_good = [pair[1] for traj in list_generated_good for pair in traj]
+        gen_actions_good_arr = np.asarray(gen_actions_good)
+        gen_good_avg = np.mean(gen_actions_good_arr, axis=0)
+
+        diff = np.abs(demo_avg - gen_good_avg)
+
+        # Generate list of trajectories using bad policy
+        # self.theta = theta_bad
+        # list_generated_bad = self.generate_trajectories(num_demos)
+        # gen_actions_bad = [pair[1] for traj in list_generated_bad for pair in traj]
+        # gen_actions_bad_arr = np.asarray(gen_actions_bad)
+        # gen_bad_avg = np.mean(gen_actions_bad_arr, axis=0)
+
+        fig, axes = plt.subplots(nrows=1, ncols=2)
+
+        ax0 = axes[0]
+        im = ax0.imshow(demo_avg, cmap='hot', vmin=0, vmax=1)
+        ax0.set_title('Demonstration actions')
+
+        ax1 =  axes[1]
+        im = ax1.imshow(diff, cmap='hot', vmin=0, vmax=1)
+        ax1.set_title('Difference')
+
+        fig.subplots_adjust(right=0.8)
+        cbar_ax = fig.add_axes([0.85, 0.3, 0.05, 0.4])
+        fig.colorbar(im, cax=cbar_ax)
+        
+        pp = PdfPages('plots_irl/'+filename)
+        pp.savefig(fig)
+        pp.close()        
 
 
     def JSD(self, P, Q):
