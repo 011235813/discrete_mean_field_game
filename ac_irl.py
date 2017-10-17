@@ -1017,6 +1017,12 @@ class AC_IRL:
         feed_dict = {self.demo_states:demo_states, self.demo_actions:demo_actions}
         reward_demo_val = self.sess.run(self.reward_demo, feed_dict=feed_dict)
 
+        # Rewards on demo test transitions
+        demo_test_states = [pair[0] for traj in self.list_demonstrations_test for pair in traj]
+        demo_test_actions = [pair[1] for traj in self.list_demonstrations_test for pair in traj]
+        feed_dict = {self.demo_states:demo_test_states, self.demo_actions:demo_test_actions}
+        reward_demo_test_val = self.sess.run(self.reward_demo, feed_dict=feed_dict)
+
         # Generate list of trajectories using good policy
         num_demos = len(self.list_demonstrations)
         self.theta = theta_good
@@ -1027,24 +1033,31 @@ class AC_IRL:
         reward_gen_good = self.sess.run(self.reward_gen, feed_dict=feed_dict)
 
         # Generate list of trajectories using bad policy
-        self.theta = theta_bad
-        list_generated_bad = self.generate_trajectories(num_demos)
-        gen_states = [pair[0] for traj in list_generated_bad for pair in traj]
-        gen_actions = [pair[1] for traj in list_generated_bad for pair in traj]
-        feed_dict = {self.gen_states:gen_states, self.gen_actions:gen_actions}
-        reward_gen_bad = self.sess.run(self.reward_gen, feed_dict=feed_dict)        
+        # self.theta = theta_bad
+        # list_generated_bad = self.generate_trajectories(num_demos)
+        # gen_states = [pair[0] for traj in list_generated_bad for pair in traj]
+        # gen_actions = [pair[1] for traj in list_generated_bad for pair in traj]
+        # feed_dict = {self.gen_states:gen_states, self.gen_actions:gen_actions}
+        # reward_gen_bad = self.sess.run(self.reward_gen, feed_dict=feed_dict)        
 
         fig = plt.figure(1)
-        plt.subplot(211)
-        plt.hist(reward_demo_val, bins=30, normed=0, facecolor='g')
+        plt.subplot(311)
+        dist_demo, _, _ = plt.hist(reward_demo_val, bins=30, normed=0, facecolor='g')
         plt.ylabel('Count')
         plt.axis([xmin, xmax, ymin, ymax])
         # plt.xlabel('Reward')
         plt.title('Histogram of reward for demo and generated transitions')
-        plt.text(x_text, y_text,  r'Demo')
+        plt.text(x_text, y_text,  r'Demo (train)')
 
-        plt.subplot(212)
-        plt.hist(reward_gen_good, bins=30, normed=0, facecolor='b')
+        plt.subplot(312)
+        dist_demo_test, _, _ = plt.hist(reward_demo_test_val, bins=30, normed=0, facecolor='r')
+        plt.ylabel('Count')
+        plt.axis([xmin, xmax, ymin, ymax])
+        # plt.xlabel('Reward')
+        plt.text(x_text, y_text,  r'Demo (test)')
+
+        plt.subplot(313)
+        dist_gen, _, _ = plt.hist(reward_gen_good, bins=30, normed=0, facecolor='b')
         plt.ylabel('Count')
         plt.axis([xmin, xmax, ymin, ymax])
         plt.text(x_text, y_text, r'Generated')
@@ -1062,6 +1075,9 @@ class AC_IRL:
         pp = PdfPages('plots_irl/'+filename)
         pp.savefig(fig)
         pp.close()
+
+        print("JSD between demo and demo_test", self.JSD(dist_demo, dist_demo_test))
+        print("JSD between demo and gen", self.JSD(dist_demo, dist_gen))
 
 
     def plot_action_heatmap(self, theta_good, theta_bad, filename='action_heatmap.pdf'):
