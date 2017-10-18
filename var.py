@@ -10,6 +10,8 @@ from scipy.stats import entropy
 from statsmodels.tsa.base.datetools import dates_from_str
 from statsmodels.tsa.stattools import adfuller
 
+import argparse
+
 class var():
 
     #def __init__(self, train='train_normalized', test='test_normalized', d=21):
@@ -18,28 +20,10 @@ class var():
         Arguments:
         d - number to topics to use (includes the null topic at index 0)
         """
-        # self.df_train, self.df_test = self.read_data(train, test, d)
         self.d = d
-#        self.mdata = sm.datasets.macrodata.load_pandas().data
-#
-#        self.dates = self.mdata[['year', 'quarter']].astype(int).astype(str)
-#
-#        self.quarterly = self.dates["year"] + "Q" + self.dates["quarter"]
-#
-#        self.quarterly = dates_from_str(self.quarterly)
-#
-#        self.mdata = self.mdata[['realgdp', 'realcons', 'realinv']]
-#
-#        self.mdata.index = pd.DatetimeIndex(self.quarterly)
-#
-#        self.data = np.log(self.mdata).diff().dropna()
-#
-#        self.model = VAR(self.data)
-#
-#        self.results = self.model.fit(2)
 
 
-    def read_data(self, train='train_normalized_round2', train_start=1, train_end=16, test='test_normalized_round2', test_start=17, test_end=20):
+    def read_data(self, train='train_normalized_round2', train_start=1, train_end=18, test='test_normalized_round2', test_start=19, test_end=24, old_format=False):
         """
         Arguments:
         train - directory that holds normalized training data
@@ -48,14 +32,16 @@ class var():
         test - directory that holds normalized test data
         test_start - the smallest day number among test files
         test_end - the largest day number among test files
-
+        old_format - if True, then use filename "trend_distribution_day%d_reordered.csv"
         """
         print("Reading train files")
         list_df = []
         idx = 0
         for num_day in range(train_start, train_end+1):
-            filename = "trend_distribution_day%d.csv" % num_day
-            print(filename)
+            if old_format:
+                filename = "trend_distribution_day%d_reordered.csv" % num_day
+            else:
+                filename = "trend_distribution_day%d.csv" % num_day                
             path_to_file = train + '/' + filename
             df = pd.read_csv(path_to_file, sep=' ', header=None, names=range(self.d), usecols=range(self.d), dtype=np.float64)
             df.index = np.arange(idx, idx+16)
@@ -69,8 +55,10 @@ class var():
         print("Reading test files")
         list_df = []
         for num_day in range(test_start, test_end+1):
-            filename = "trend_distribution_day%d.csv" % num_day
-            print(filename)
+            if old_format:
+                filename = "trend_distribution_day%d_reordered.csv" % num_day
+            else:
+                filename = "trend_distribution_day%d.csv" % num_day                
             path_to_file = test + '/' + filename
             df = pd.read_csv(path_to_file, sep=' ', header=None, names=range(self.d), usecols=range(self.d), dtype=np.float64)
             df.index = np.arange(idx, idx+16) # use the same idx that was incremented when reading training data
@@ -114,7 +102,7 @@ class var():
     def train(self, max_lag, df_train):
 
         self.model = VAR(df_train)
-
+        
         self.results = self.model.fit(maxlags=max_lag, ic='aic')
 
 
@@ -139,11 +127,11 @@ class var():
                 the_rest = [x for x in list_choices if x not in selected]
                 list_temp = []
                 for point in selected:
-                    list_temp.append( self.df_train[point:point+16] )
+                    list_temp.append( self.df_train[point*16:(point+1)*16] )
                 df_selected = pd.concat(list_temp)
                 list_temp = []
                 for point in the_rest:
-                    list_temp.append( self.df_train[point:point+16] )
+                    list_temp.append( self.df_train[point*16:(point+1)*16] )
                 df_validation = pd.concat(list_temp)
 
                 # Relabel indices to have increasing time order
@@ -339,7 +327,7 @@ class var():
         return self.df_future
 
 
-    def evaluate_test(self, outfile='test_eval_var.csv'):
+    def evaluate_test(self, outfile='eval_var_round/test.csv'):
         lag = self.results.k_ar
 
         # Total number of distributions in future 
@@ -399,18 +387,16 @@ class var():
         std_l1_final = np.std(array_l1_final)
         mean_JSD_final = np.mean(array_JSD_final)
         std_JSD_final = np.std(array_JSD_final)
-        print(array_l1_final)
-        print(array_JSD_final)
-        print(mean_l1_final)
-        print(mean_JSD_final)
+        print("Mean L1 final", mean_l1_final)
+        print("Mean JSD final", mean_JSD_final)
 
-        # Mean over all hours of the difference between distributions at all hours
+        # Mean over all days of the average difference between distributions over all hours
         mean_l1_mean = np.mean(array_l1_mean)
         std_l1_mean = np.std(array_l1_mean)
         mean_JSD_mean = np.mean(array_JSD_mean)
         std_JSD_mean = np.std(array_JSD_mean)
-        print(mean_l1_mean)
-        print(mean_JSD_mean)        
+        print("Mean L1 mean", mean_l1_mean)
+        print("Mean JSD mean", mean_JSD_mean)        
 
         with open(outfile, 'ab') as f:
             np.savetxt(f, np.array(['array_l1_final']), fmt='%s')
@@ -433,14 +419,19 @@ class var():
 
 
 if __name__ == "__main__":
-    exp = var(d=21)
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--max_lag', type=int, default=1)
+    args = parser.parse_args()
+    
+    exp = var(d=15)
     print("reading data")
-    exp.read_data()
+    df_train, df_test = exp.read_data(train='train_normalized_round2', train_start=1, train_end=16, test='test_normalized_round2', test_start=17, test_end=20)
     print("training")
-    exp.train(max_lag=15, df_train=self.df_train)
-    print("evaluate training performance")
-    exp.evaluate_train()
+    exp.train(max_lag=args.max_lag, df_train=exp.df_train)
+    # print("evaluate training performance")
+    # exp.evaluate_train()
     print("forecasting")
-    exp.forecast()
-    print("evaluate test performance")
-    exp.evaluate_test()
+    exp.forecast(num_prior=args.max_lag, steps=64, topic=0, plot=1, show_plot=1)
+    # print("evaluate test performance")
+    # exp.evaluate_test()
