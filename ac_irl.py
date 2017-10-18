@@ -35,6 +35,8 @@ class AC_IRL:
         use_tf - if True, create tensorflow graphs as usual, else do not instantiate graph
         """
         self.summarize = summarize
+        if (platform.system() == "Windows"):
+            self.var = var.var(d=d)
 
         # initialize theta
         self.theta = theta
@@ -64,7 +66,7 @@ class AC_IRL:
 
         # Will become list of list of tuples of the form (state, action)
         self.list_demonstrations = self.read_demonstrations(state_dir='./train_normalized_round2', action_dir='./actions_2', dim_action=20, start_day=1)
-        self.list_demonstrations_test = self.read_demonstrations(state_dir='./test_normalized_round2', action_dir='./actions_test_2', dim_action=20, start_day=17)
+        self.list_demonstrations_test = self.read_demonstrations(state_dir='./test_normalized_round2', action_dir='./actions_test_2', dim_action=20, start_day=19)
         # Collect a set of transitions from demo trajectories for testing reward function
         self.list_eval_demo_transitions = [pair for traj in self.list_demonstrations for pair in traj]
         # self.list_eval_demo_transitions = self.get_eval_transitions(self.list_demonstrations)
@@ -102,7 +104,7 @@ class AC_IRL:
             self.saver = tf.train.Saver()
             
             if saved_network:
-                self.saver.restore(self.sess, "log/"+saved_network)
+                self.saver.restore(self.sess, "saved/"+saved_network)
             
         
     # ------------------- File processing functions ------------------ #
@@ -906,7 +908,7 @@ class AC_IRL:
         # Solve forward problem completely
         print("********** Final forward training **********")
         self.theta = self.theta_initial
-        self.train(1000, -1, gamma, constant, lr_critic, lr_actor, consecutive=100, file_theta='results/theta.csv', file_pi='results/pi.csv', file_reward='results/reward.csv', write_file=1, write_all=0)
+        self.train(2000, -1, gamma, constant, lr_critic, lr_actor, consecutive=100, file_theta='results/theta.csv', file_pi='results/pi.csv', file_reward='results/reward.csv', write_file=1, write_all=0)
         return self.theta
 
 
@@ -1180,7 +1182,7 @@ class AC_IRL:
         return mat_trajectory
 
 
-    def evaluate(self, theta=8.86349, shift=0.5, alpha_scale=1e4, d=15, episode_length=16, indir='test_normalized_round2', outfile='eval_mfg/validation.csv', write_header=0):
+    def evaluate(self, theta=8.86349, shift=0.5, alpha_scale=1e4, d=15, episode_length=16, indir='test_normalized_round2', outfile='eval_mfg_round2/validation.csv', write_header=0):
         """
         Main evaluation function
 
@@ -1348,7 +1350,7 @@ class AC_IRL:
         self.df_rnn = df
 
         
-    def visualize_test(self, theta=9.99, d=21, topic=0, dir_train='train_normalized2', train_start=1, train_end=35, dir_test='test_normalized2', test_start=36, test_end=45, mfg_and_rnn=0, log_scale=0,  save_plot=0, outfile='plots/mfg_var_0_9p99_0p02_2e4_22_m5d15.pdf'):
+    def visualize_test(self, lag=13, theta=9.99, d=21, topic=0, dir_train='train_normalized_round2', train_start=1, train_end=18, dir_test='test_normalized_round2', test_start=19, test_end=24, mfg_and_rnn=0, log_scale=0,  save_plot=0, outfile='traj_mfg_var_0_8p06_0p16_12e3_13_m10d18.pdf'):
         """
         Produce plot of trajectory of raw test data, 
         MFG generated data, and time series prediction (from var.py)
@@ -1377,7 +1379,7 @@ class AC_IRL:
 
         # Train VAR and get forecast
         print("Running VAR to get forecast")
-        self.var.train(22, self.var.df_train)
+        self.var.train(lag, self.var.df_train)
         df_future_var = self.var.forecast(num_prior=int(16*(train_end-train_start+1)), steps=int(16*(test_end-test_start+1)), topic=topic, plot=0, show_plot=0)
 
         # Get RNN predictions
@@ -1403,12 +1405,12 @@ class AC_IRL:
                 ax.set_yscale('log')
         plt.ylabel('Topic %d popularity' % topic)
         plt.xlabel('Day')
-        plt.xticks(np.arange(0,10+1,1))
+        plt.xticks(np.arange(0,(test_end-test_start+1)+1,1))
         plt.legend(loc='best', prop={'size':14})
         plt.title("Topic %d measurement and predictions" % topic)
 
         if save_plot == 1:
-            pp = PdfPages(outfile)
+            pp = PdfPages('plots_irl/'+outfile)
             pp.savefig(fig)
             pp.close()
         else:
