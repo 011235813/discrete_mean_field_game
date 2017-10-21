@@ -1,16 +1,18 @@
 import numpy as np
 from numpy.linalg import norm
 from scipy.stats import entropy
+from scipy.stats import gaussian_kde
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from pylab import flipud
 import pandas as pd
 
+
 #plt.rcParams.update({'font.size': 12})
-def plot_barchart():
+def plot_barchart(filename='chart_mfg_t8p06_s0p16_alpha12000_var_lag13_rnn.pdf'):
     N = 2
-    mfg = (0.0028, 0.0045) #(0.00267, 0.00429) #(0.0147, 0.0222)
-    mfg_std = (0.0014, 0.0018) #(0.00162, 0.0019) #(0.009, 0.005)
+    mfg = (0.00396, 0.00581) # previous: (0.0028, 0.0045)
+    mfg_std = (0.00352, 0.00184) # previous: (0.0014, 0.0018)
     
     ind = np.arange(N)  # the x locations for the groups
     width = 0.15       # the width of the bars
@@ -20,8 +22,8 @@ def plot_barchart():
     
     ax.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
     
-    var = (0.00359, 0.00456) #(0.0271, 0.0292)
-    var_std = (0.00101, 0.00104) #(0.0156, 0.0115)
+    var = (0.0166, 0.0178) # previous: (0.00359, 0.00456)
+    var_std = (0.00526, 0.00400) # previous: (0.00101, 0.00104)
     rects2 = ax.bar(ind + width, var, width, color='r', yerr=var_std)
     
     rnn = (0.613119, 0.594970)
@@ -46,7 +48,7 @@ def plot_barchart():
     ax.legend((rects1[0], rects2[0], rects3[0]), ('MFG', 'VAR', 'RNN'), bbox_to_anchor=(0.65,1), prop={'size':14})
     
     #plt.show()
-    pp = PdfPages('plots/chart_mfg_t8p86_s0p16_alpha12000_var_lag22_rnn.pdf')
+    pp = PdfPages('plots_irl/'+filename)
     pp.savefig(fig)
     pp.close()
 
@@ -102,7 +104,6 @@ def test_histogram(normed=False):
     fig = plt.figure(1)
     plt.subplot(311)
     n_x, bins, patches = plt.hist(x, 50, normed=normed, facecolor='g', alpha=0.75)
-    axes = plt.gca()
     # y_min, y_max = axes.get_ylim()
     # print(y_min, y_max)
     plt.xlabel('Smarts')
@@ -136,9 +137,52 @@ def test_histogram(normed=False):
     # plt.axis([40, 160, 0, 0.03])        
     # plt.axis([40, 160, y_min, y_max])
 
+    axes = plt.gca()
+    # for item in ([axes.title, axes.xaxis.label, axes.yaxis.label] + axes.get_xticklabels()):
+    #     item.set_fontsize(14)
+    axes.xaxis.label.set_fontsize(14)
+    plt.tight_layout()
     print(JSD(n_x, n_y), JSD(n_x,n_z))
 
     pp = PdfPages("test_histogram.pdf")
+    pp.savefig(fig)
+    pp.close()
+
+
+def test_histogram_smooth(normed=True):
+    mu, sigma = 100, 15
+    data_1 = mu + sigma * np.random.randn(10000)
+    mu, sigma = 85, 15
+    data_2= mu + sigma * np.random.randn(10000)
+    mu, sigma = 115, 15
+    data_3 = mu + sigma * np.random.randn(100)
+
+    fig = plt.figure()
+
+    plt.xlabel('Smarts')
+    plt.ylabel('Probability')
+    plt.title('Histogram of IQ')
+    plt.text(60, .025, r'$\mu=100,\ \sigma=15$')
+
+    density1 = gaussian_kde(data_1)
+    xs = np.linspace(50, 150,200)
+    # density1.covariance_factor = lambda : .25
+    # density1._compute_covariance()
+    plt.plot(xs, density1(xs))
+
+    density2 = gaussian_kde(data_2)
+    xs = np.linspace(50, 150,200)
+    # density2.covariance_factor = lambda : .25
+    # density2._compute_covariance()
+    plt.plot(xs, density2(xs))
+
+    density3 = gaussian_kde(data_3)
+    xs = np.linspace(50, 150,200)
+    # density3.covariance_factor = lambda : .25
+    # density3._compute_covariance()
+    plt.plot(xs, density3(xs))    
+
+    pp = PdfPages("test_histogram_smooth.pdf")
     pp.savefig(fig)
     pp.close()
 
@@ -158,10 +202,16 @@ def test_heatmap():
     ax1 = axes[0]
     im = ax1.imshow(arr1, cmap='hot', vmin=0, vmax=1)
     ax1.set_title('hello')
+    major_ticks = np.arange(0, 15, 3)                                         
+    ax1.set_xticks(major_ticks)
+    ax1.set_yticks(major_ticks)
 
     ax2 = axes[1]
     im = ax2.imshow(arr2, cmap='hot', vmin=0, vmax=1)
     ax2.set_title('bye')
+    major_ticks = np.arange(0, 15, 3)                                         
+    ax2.set_xticks(major_ticks)           
+    ax2.set_yticks(major_ticks)
 
     fig.subplots_adjust(right=0.8)
     cbar_ax = fig.add_axes([0.85, 0.3, 0.05, 0.4])
@@ -171,8 +221,9 @@ def test_heatmap():
     # cax = fig.add_axes([0.9, 0.1, 0.03, 0.8]) # xmin, ymin, dx, dy
     # fig.colorbar(im, cax=cax)
     
+    # plt.tight_layout()
     pp = PdfPages("test_heatmap.pdf")
-    pp.savefig(fig)
+    pp.savefig(fig, bbox_inches='tight')
     pp.close()
 
 
