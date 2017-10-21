@@ -9,6 +9,7 @@ import tensorflow as tf
 
 from scipy import special
 from scipy.stats import entropy
+from scipy.stats import gaussian_kde
 # from scipy.stats import dirichlet
 import functools
 
@@ -29,7 +30,7 @@ import networks
 
 class AC_IRL:
 
-    def __init__(self, theta=8.86349, shift=0.16, alpha_scale=12000, d=15, lr_reward=1e-4, num_policies=10, c=2e11, reg='none', n_fc3=4, n_fc4=4, saved_network=None, use_tf=True, summarize=False):
+    def __init__(self, theta=8.86349, shift=0.16, alpha_scale=12000, d=15, lr_reward=1e-4, num_policies=10, c=2e11, reg='dropout_l1l2', n_fc3=8, n_fc4=4, saved_network=None, use_tf=True, summarize=False):
         """
         reg - 'none', 'dropout', 'l1l2', 'dropout_l1l2'
         use_tf - if True, create tensorflow graphs as usual, else do not instantiate graph
@@ -1001,15 +1002,14 @@ class AC_IRL:
         return reward_demo_avg_train, reward_demo_avg_test, reward_gen_avg
 
 
-    def plot_reward_histogram(self, theta_good, theta_bad, xmin, xmax, ymin, ymax, x_text, y_text, filename='reward_histogram.pdf'):
+    def plot_reward_distribution(self, theta_good=8.06, xmin=-0.1, xmax=0.4, filename='reward_distribution.pdf'):
         """
         Generate three histograms
         1. distribution of reward for demo transitions
+        2. distribution of reward for demo test transitions
         2. distribution of reward for good generated transitions
-        3. distribution of reward for bad generated transitions
 
         theta_good - learned theta for generating good transitions
-        theta_bad - some random bad theta for generating bad transitions
         xmin, xmax, ymin, ymax - axis boundaries
         """
 
@@ -1034,55 +1034,114 @@ class AC_IRL:
         feed_dict = {self.gen_states:gen_states, self.gen_actions:gen_actions}
         reward_gen_good = self.sess.run(self.reward_gen, feed_dict=feed_dict)
 
-        # Generate list of trajectories using bad policy
-        # self.theta = theta_bad
-        # list_generated_bad = self.generate_trajectories(num_demos)
-        # gen_states = [pair[0] for traj in list_generated_bad for pair in traj]
-        # gen_actions = [pair[1] for traj in list_generated_bad for pair in traj]
-        # feed_dict = {self.gen_states:gen_states, self.gen_actions:gen_actions}
-        # reward_gen_bad = self.sess.run(self.reward_gen, feed_dict=feed_dict)        
-
         fig = plt.figure(1)
-        plt.subplot(311)
-        dist_demo, _, _ = plt.hist(reward_demo_val, bins=30, normed=0, facecolor='g')
-        plt.ylabel('Count')
-        plt.axis([xmin, xmax, ymin, ymax])
-        # plt.xlabel('Reward')
-        plt.title('Histogram of reward for demo and generated transitions')
-        plt.text(x_text, y_text,  r'Demo (train)')
 
-        plt.subplot(312)
-        dist_demo_test, _, _ = plt.hist(reward_demo_test_val, bins=30, normed=0, facecolor='r')
-        plt.ylabel('Count')
-        plt.axis([xmin, xmax, ymin, ymax])
-        # plt.xlabel('Reward')
-        plt.text(x_text, y_text,  r'Demo (test)')
+        density_demo = gaussian_kde(reward_demo_val.flatten())
+        xs = np.linspace(xmin, xmax, 200)
+        # density_demo.covariance_factor = lambda : .25
+        # density_demo._compute_covariance()
+        plt.plot(xs, density_demo(xs), label='Demo (train)', color='g')
 
-        plt.subplot(313)
-        dist_gen, _, _ = plt.hist(reward_gen_good, bins=30, normed=0, facecolor='b')
-        plt.ylabel('Count')
-        plt.axis([xmin, xmax, ymin, ymax])
-        plt.text(x_text, y_text, r'Generated')
+        density_demo_test = gaussian_kde(reward_demo_test_val.flatten())
+        plt.plot(xs, density_demo_test(xs), label='Demo (test)', color='r')
+
+        density_gen = gaussian_kde(reward_gen_good.flatten())
+        plt.plot(xs, density_gen(xs), label='Generated', color='b')        
+
+        plt.ylabel('Density')
         plt.xlabel('Reward')
-        # plt.title('Histogram of reward of generated transitions from learned policy')
+        # plt.axis([xmin, xmax, ymin, ymax1])
+        plt.title('Distribution of reward for demo and generated transitions')
+        plt.legend(loc='best', fontsize=14)        
+        axes = plt.gca()
+        for item in ([axes.title, axes.yaxis.label, axes.xaxis.label]):
+            item.set_fontsize(14)
 
-        # plt.subplot(313)
-        # plt.hist(reward_gen_bad, bins=30, normed=0, facecolor='r')
-        # plt.ylabel('Count')
-        # plt.xlabel('Reward')
-        # plt.axis([xmin, xmax, ymin, plt.ylim()[1]])
-        # plt.text(x_text, y_text, r'Generated ($\theta$=%f)'%theta_bad)
-        # plt.title('Histogram of reward on generated transitions from random policy')
-        
+        plt.tight_layout()
         pp = PdfPages('plots_irl/'+filename)
-        pp.savefig(fig)
+        pp.savefig(fig, bbox_inches='tight')
         pp.close()
+
+        dist_demo, _, _ = plt.hist(reward_demo_val, bins=30, normed=0, facecolor='g')
+        dist_demo_test, _, _ = plt.hist(reward_demo_test_val, bins=30, normed=0, facecolor='r')
+        dist_gen, _, _ = plt.hist(reward_gen_good, bins=30, normed=0, facecolor='b')
 
         print("JSD between demo and demo_test", self.JSD(dist_demo, dist_demo_test))
         print("JSD between demo and gen", self.JSD(dist_demo, dist_gen))
 
 
-    def plot_action_heatmap(self, theta_good, theta_bad, filename='action_heatmap.pdf'):
+    def plot_reward_histogram(self, theta_good=8.06, xmin=-0.1, xmax=0.4, ymin=0, ymax1=50, ymax2=25, ymax3=50, x_text=0.2, y_text1=35, y_text2=20, y_text3=35, filename='reward_histogram.pdf'):
+        """
+        Generate three histograms
+        1. reward for demo transitions
+        2. reward for demo test transitions
+        3. reward for good generated transitions
+
+        theta_good - learned theta for generating good transitions
+        xmin, xmax, ymin, ymax - axis boundaries
+        """
+
+        # Get rewards on demo transitions
+        demo_states = [pair[0] for traj in self.list_demonstrations for pair in traj]
+        demo_actions = [pair[1] for traj in self.list_demonstrations for pair in traj]
+        feed_dict = {self.demo_states:demo_states, self.demo_actions:demo_actions}
+        reward_demo_val = self.sess.run(self.reward_demo, feed_dict=feed_dict)
+
+        # Rewards on demo test transitions
+        demo_test_states = [pair[0] for traj in self.list_demonstrations_test for pair in traj]
+        demo_test_actions = [pair[1] for traj in self.list_demonstrations_test for pair in traj]
+        feed_dict = {self.demo_states:demo_test_states, self.demo_actions:demo_test_actions}
+        reward_demo_test_val = self.sess.run(self.reward_demo, feed_dict=feed_dict)
+
+        # Generate list of trajectories using good policy
+        num_demos = len(self.list_demonstrations)
+        self.theta = theta_good
+        list_generated_good = self.generate_trajectories(num_demos)
+        gen_states = [pair[0] for traj in list_generated_good for pair in traj]
+        gen_actions = [pair[1] for traj in list_generated_good for pair in traj]
+        feed_dict = {self.gen_states:gen_states, self.gen_actions:gen_actions}
+        reward_gen_good = self.sess.run(self.reward_gen, feed_dict=feed_dict)
+
+        fig = plt.figure(1)
+
+        plt.subplot(311)
+        dist_demo, _, _ = plt.hist(reward_demo_val, bins=30, normed=0, facecolor='g')
+        plt.ylabel('Count')
+        plt.axis([xmin, xmax, ymin, ymax1])
+        plt.title('Histogram of reward for demo and generated transitions')
+        plt.text(x_text, y_text1,  r'Demo (train)')
+        axes = plt.gca()
+        for item in ([axes.title, axes.yaxis.label]):
+            item.set_fontsize(14)
+        
+        plt.subplot(312)
+        dist_demo_test, _, _ = plt.hist(reward_demo_test_val, bins=30, normed=0, facecolor='r')
+        plt.ylabel('Count')
+        plt.axis([xmin, xmax, ymin, ymax2])
+        plt.text(x_text, y_text2,  r'Demo (test)')
+        axes = plt.gca()
+        axes.yaxis.label.set_fontsize(14)
+        
+        plt.subplot(313)
+        dist_gen, _, _ = plt.hist(reward_gen_good, bins=30, normed=0, facecolor='b')
+        plt.ylabel('Count')
+        plt.axis([xmin, xmax, ymin, ymax3])
+        plt.text(x_text, y_text3, r'Generated')
+        plt.xlabel('Reward')
+        axes = plt.gca()
+        for item in ([axes.yaxis.label, axes.xaxis.label]):
+            item.set_fontsize(14)
+
+        plt.tight_layout()
+        pp = PdfPages('plots_irl/'+filename)
+        pp.savefig(fig, bbox_inches='tight')
+        pp.close()
+
+        print("JSD between demo and demo_test", self.JSD(dist_demo, dist_demo_test))
+        print("JSD between demo and gen", self.JSD(dist_demo, dist_gen))        
+
+
+    def plot_action_heatmap(self, theta_good, filename='action_heatmap.pdf'):
         """
         Does not require reward network. Generate three heatmaps:
         1. distribution of averaged demo actions
@@ -1107,29 +1166,29 @@ class AC_IRL:
 
         diff = np.abs(demo_avg - gen_good_avg)
 
-        # Generate list of trajectories using bad policy
-        # self.theta = theta_bad
-        # list_generated_bad = self.generate_trajectories(num_demos)
-        # gen_actions_bad = [pair[1] for traj in list_generated_bad for pair in traj]
-        # gen_actions_bad_arr = np.asarray(gen_actions_bad)
-        # gen_bad_avg = np.mean(gen_actions_bad_arr, axis=0)
-
         fig, axes = plt.subplots(nrows=1, ncols=2)
 
         ax0 = axes[0]
         im = ax0.imshow(demo_avg, cmap='hot', vmin=0, vmax=1)
         ax0.set_title('Demonstration actions')
+        ax0.title.set_fontsize(14)
+        major_ticks = np.arange(0, 15, 5) 
+        ax0.set_xticks(major_ticks)
+        ax0.set_yticks(major_ticks)
 
         ax1 =  axes[1]
         im = ax1.imshow(diff, cmap='hot', vmin=0, vmax=1)
         ax1.set_title('Difference')
+        ax1.title.set_fontsize(14)
+        ax1.set_xticks(major_ticks)
+        ax1.set_yticks(major_ticks)        
 
         fig.subplots_adjust(right=0.8)
         cbar_ax = fig.add_axes([0.85, 0.3, 0.05, 0.4])
         fig.colorbar(im, cax=cbar_ax)
         
         pp = PdfPages('plots_irl/'+filename)
-        pp.savefig(fig)
+        pp.savefig(fig, bbox_inches='tight')
         pp.close()        
 
 
