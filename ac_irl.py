@@ -1192,6 +1192,74 @@ class AC_IRL:
         pp.close()        
 
 
+    def plot_reward_heatmap(self, r_min=-0.25, r_max=0.5, cmap='hot', filename='reward_heatmap.pdf'):
+        """
+        Generates three kinds of states
+        1. [very heavy ... very light, all zeros afterward]
+        2. [heavy ... light]
+        3. [uniform .... uniform]
+        and three kinds of actions
+        1. people in topic i only move to topic j that has higher popularity
+        2. everyone moves equally to all topics
+        3. people in topic i only move to topic j that has lower popularity
+        """
+        state1 = self.mat_pi0[0]
+        print("State 1")
+        print(state1)
+        # [heavy ... light]
+        state2 = np.zeros(self.d, dtype=np.float32)
+        for idx in range(0, self.d):
+            state2[idx] = 2**(self.d - idx)
+        state2 = state2 / np.sum(state2)
+        print("State 2")
+        print(state2)
+        # [uniform .... uniform]
+        state3 = np.ones(self.d, dtype=np.float32) / self.d
+
+        # people in topic i only move to topic j that has higher popularity
+        self.theta = 8.06
+        action1 = self.sample_action(state2)
+
+        # people in all topics move equally to all topics
+        action2 = np.ones((self.d, self.d), dtype=np.float32) / self.d
+        
+        # people in topic i only move to topic j that has lower popularity
+        # reverse the all rows of action1
+        action3 = action1[:, ::-1]
+
+        reward_matrix = np.zeros((3,3), dtype=np.float32)
+        matrix_pairs = [ [(state1,action1), (state1,action2), (state1,action3)], [(state2,action1), (state2,action2), (state2,action3)], [(state3,action1), (state3,action2), (state3,action3)] ]
+        for idx_row in range(0,3):
+            for idx_col in range(0,3):
+                pair = matrix_pairs[idx_row][idx_col]
+                feed_dict = {self.gen_states:[pair[0]], self.gen_actions:[pair[1]]}
+                reward_val = self.sess.run(self.reward_gen, feed_dict=feed_dict)
+                reward_matrix[idx_row, idx_col] = reward_val
+
+        fig = plt.figure()
+        ax = plt.gca()
+
+        im = ax.imshow(reward_matrix, cmap=cmap, vmin=r_min, vmax=r_max)
+        ax.set_title('Reward of state-action pairs')
+        major_ticks = np.arange(0, 3, 1) 
+        ax.set_xticks(major_ticks)
+        ax.set_yticks(major_ticks)
+        ax.set_xlabel('Actions')
+        ax.set_ylabel('States')
+        for item in ([ax.yaxis.label, ax.xaxis.label, ax.title]):
+            item.set_fontsize(14)
+
+        fig.colorbar(im)
+        
+        pp = PdfPages('plots_irl/'+filename)
+        pp.savefig(fig, bbox_inches='tight')
+        pp.close()
+
+        plt.gcf().clear()
+
+        return state1, state2, state3, action1, action2, action3
+
+
     def JSD(self, P, Q):
         """
         Arguments:
