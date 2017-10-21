@@ -250,3 +250,24 @@ def test_colorbar():
     pp.close()
 
 
+def test_heatmap_simple():
+    data = np.array([[1,2],[3,4]])
+    
+    # Plot each slice as an independent subplot
+    fig = plt.figure()
+    ax = plt.gca()
+
+    im = ax.imshow(data, cmap='hot', vmin=0, vmax=4)
+    ax.set_title('hello')
+    major_ticks = np.arange(0, 2, 1) 
+    ax.set_xticks(major_ticks)
+    ax.set_yticks(major_ticks)
+    ax.set_xlabel('x label')
+    ax.set_ylabel('y label')
+
+    fig.colorbar(im)
+
+    # plt.tight_layout()
+    pp = PdfPages("test_heatmap_simple.pdf")
+    pp.savefig(fig, bbox_inches='tight')
+    pp.close()    
