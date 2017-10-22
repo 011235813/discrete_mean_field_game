@@ -67,7 +67,7 @@ class AC_IRL:
 
         # Will become list of list of tuples of the form (state, action)
         self.list_demonstrations = self.read_demonstrations(state_dir='./train_normalized_round2', action_dir='./actions_2', dim_action=20, start_day=1)
-        self.list_demonstrations_test = self.read_demonstrations(state_dir='./test_normalized_round2', action_dir='./actions_test_2', dim_action=20, start_day=19)
+        self.list_demonstrations_test = self.read_demonstrations(state_dir='./test_normalized_round2', action_dir='./actions_test_2', dim_action=20, start_day=22)
         # Collect a set of transitions from demo trajectories for testing reward function
         self.list_eval_demo_transitions = [pair for traj in self.list_demonstrations for pair in traj]
         # self.list_eval_demo_transitions = self.get_eval_transitions(self.list_demonstrations)
@@ -1471,13 +1471,13 @@ class AC_IRL:
             plt.show()
 
 
-    def read_rnn(self, path_to_file='rnn_normalized/trajectories_rnn.txt'):
+    def read_rnn(self, path_to_file='rnn_normalized/trajectories_rnn.txt', num_days=6):
         df = pd.read_csv(path_to_file, sep=' ', header=None, names=range(self.d), usecols=range(self.d), dtype=np.float32)
-        df.index = pd.to_datetime(np.arange(0,160), unit="D")
+        df.index = pd.to_datetime(np.arange(0,num_days*16), unit="D")
         self.df_rnn = df
 
         
-    def visualize_test(self, lag=13, theta=9.99, d=21, topic=0, dir_train='train_normalized_round2', train_start=1, train_end=18, dir_test='test_normalized_round2', test_start=19, test_end=24, mfg_and_rnn=0, log_scale=0,  save_plot=0, outfile='traj_mfg_var_0_8p06_0p16_12e3_13_m10d18.pdf'):
+    def visualize_test(self, lag=13, theta=9.99, d=21, topic=0, dir_train='train_normalized_round2', train_start=1, train_end=21, dir_test='test_normalized_round2', test_start=22, test_end=27, mfg_and_rnn=0, path_to_rnn='rnn_normalized_round2/trajectories.txt', log_scale=0,  save_plot=0, outfile='traj_mfg_var_0_8p06_0p16_12e3_13_m10d18.pdf'):
         """
         Produce plot of trajectory of raw test data, 
         MFG generated data, and time series prediction (from var.py)
@@ -1510,7 +1510,7 @@ class AC_IRL:
         df_future_var = self.var.forecast(num_prior=int(16*(train_end-train_start+1)), steps=int(16*(test_end-test_start+1)), topic=topic, plot=0, show_plot=0)
 
         # Get RNN predictions
-        self.read_rnn()
+        self.read_rnn(path_to_rnn, (test_end-test_start+1))
 
         #array_x_test = np.arange(0, len(self.df_test_generated.index))
         array_x_test = np.arange(0, len(self.df_test_generated.index))/16.0
