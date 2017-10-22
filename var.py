@@ -327,7 +327,7 @@ class var():
         return self.df_future
 
 
-    def evaluate_test(self, outfile='eval_var_round/test.csv'):
+    def evaluate_test(self, outfile='eval_var_round2/test.csv'):
         lag = self.results.k_ar
 
         # Total number of distributions in future 
