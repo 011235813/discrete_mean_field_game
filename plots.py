@@ -9,10 +9,10 @@ import pandas as pd
 
 
 #plt.rcParams.update({'font.size': 12})
-def plot_barchart(filename='chart_mfg_t8p06_s0p16_alpha12000_var_lag13_rnn.pdf'):
+def plot_barchart(filename='chart_mfg_t8p06_s0p16_alpha12000_var_lag13_rnn.pdf', num_days=6):
     N = 2
-    mfg = (0.00396, 0.00581) # previous: (0.0028, 0.0045)
-    mfg_std = (0.00352, 0.00184) # previous: (0.0014, 0.0018)
+    mfg = (0.00299, 0.00485) # previous: (0.0028, 0.0045)
+    mfg_std = (0.000671, 0.00123) # previous: (0.0014, 0.0018)
     
     ind = np.arange(N)  # the x locations for the groups
     width = 0.15       # the width of the bars
@@ -22,12 +22,12 @@ def plot_barchart(filename='chart_mfg_t8p06_s0p16_alpha12000_var_lag13_rnn.pdf')
     
     ax.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
     
-    var = (0.0166, 0.0178) # previous: (0.00359, 0.00456)
-    var_std = (0.00526, 0.00400) # previous: (0.00101, 0.00104)
+    var = (0.00704, 0.00805) # previous: (0.00359, 0.00456)
+    var_std = (0.00117, 0.001) # previous: (0.00101, 0.00104)
     rects2 = ax.bar(ind + width, var, width, color='r', yerr=var_std)
     
-    rnn = (0.613119, 0.594970)
-    rnn_std = (0.007203, 0.008202)
+    rnn = (0.580, 0.567) # previous (0.613, 0.595)
+    rnn_std = (0.007, 0.01) # previous ( 0.007, 0.008)
     rects3 = ax.bar(ind + 2*width, rnn, width, color='m', yerr=rnn_std)
     
     start, end = ax.get_ylim()
@@ -36,7 +36,7 @@ def plot_barchart(filename='chart_mfg_t8p06_s0p16_alpha12000_var_lag13_rnn.pdf')
     
     # add some text for labels, title and axes ticks
     ax.set_ylabel('JSD (log scale)')
-    ax.set_title('Average test error over 10 days')
+    ax.set_title('Average test error over %d days' % num_days)
     ax.set_xticks(ind + width / 2)
     ax.set_xticklabels(('Final distribution', 'Entire trajectory (averaged)'))
     ax.set_yscale('log')
