@@ -1189,6 +1189,58 @@ class AC_IRL:
         
         pp = PdfPages('plots_irl/'+filename)
         pp.savefig(fig, bbox_inches='tight')
+        pp.close()
+
+
+    def plot_action_heatmap_vertical(self, theta_good=8.64, shift=0.5, x=0.68, y=0.1, dx=0.05, dy=0.8, filename='action_heatmap_vertical.pdf'):
+        """
+        Does not require reward network. Generate three heatmaps:
+        1. distribution of averaged demo actions
+        2. distribution of averaged good generated actions
+        3. distribution of averaged bad generated actions
+
+        theta_good - learned theta for generating good transitions
+        theta_bad - some random bad theta for generating bad transitions
+        """
+        # Get demo actions
+        demo_actions = [pair[1] for traj in self.list_demonstrations for pair in traj]
+        demo_actions_arr = np.asarray(demo_actions)
+        demo_avg = np.mean(demo_actions_arr, axis=0)
+
+        # Generate list of trajectories using good policy
+        num_demos = len(self.list_demonstrations)
+        self.theta = theta_good
+        list_generated_good = self.generate_trajectories(num_demos)
+        gen_actions_good = [pair[1] for traj in list_generated_good for pair in traj]
+        gen_actions_good_arr = np.asarray(gen_actions_good)
+        gen_good_avg = np.mean(gen_actions_good_arr, axis=0)
+
+        diff = np.abs(demo_avg - gen_good_avg)
+
+        fig, axes = plt.subplots(nrows=2, ncols=1)
+
+        ax0 = axes[0]
+        im = ax0.imshow(demo_avg, cmap='hot', vmin=0, vmax=1)
+        ax0.set_title('Demonstration actions')
+        ax0.title.set_fontsize(14)
+        major_ticks = np.arange(0, 15, 5) 
+        ax0.set_xticks(major_ticks)
+        ax0.set_yticks(major_ticks)
+
+        ax1 =  axes[1]
+        im = ax1.imshow(diff, cmap='hot', vmin=0, vmax=1)
+        ax1.set_title('Difference')
+        ax1.title.set_fontsize(14)
+        ax1.set_xticks(major_ticks)
+        ax1.set_yticks(major_ticks)        
+
+        fig.subplots_adjust(right=shift)
+        cbar_ax = fig.add_axes([x, y, dx, dy])
+        fig.colorbar(im, cax=cbar_ax)
+        
+        plt.tight_layout()
+        pp = PdfPages('plots_irl/'+filename)
+        pp.savefig(fig, bbox_inches='tight')
         pp.close()        
 
 

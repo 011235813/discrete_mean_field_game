@@ -227,6 +227,44 @@ def test_heatmap():
     pp.close()
 
 
+def test_heatmap_vertical(shift, x, y):
+    # Generate some data that where each slice has a different range
+    # (The overall range is from 0 to 2)
+    arr1 = np.random.random((15,15))
+    arr2 = np.random.random((15,15))
+    data = np.stack([arr1, arr2], axis=0)
+    
+    # Plot each slice as an independent subplot
+    fig, axes = plt.subplots(nrows=2, ncols=1)
+
+    ax1 = axes[0]
+    im = ax1.imshow(arr1, cmap='hot', vmin=0, vmax=1)
+    ax1.set_title('hello')
+    major_ticks = np.arange(0, 15, 3)                                         
+    ax1.set_xticks(major_ticks)
+    ax1.set_yticks(major_ticks)
+
+    ax2 = axes[1]
+    im = ax2.imshow(arr2, cmap='hot', vmin=0, vmax=1)
+    ax2.set_title('bye')
+    major_ticks = np.arange(0, 15, 3)                                         
+    ax2.set_xticks(major_ticks)           
+    ax2.set_yticks(major_ticks)
+
+    fig.subplots_adjust(right=shift)
+    cbar_ax = fig.add_axes([x, y, 0.05, 0.4])
+    fig.colorbar(im, cax=cbar_ax)
+    
+    # Make an axis for the colorbar on the right side
+    # cax = fig.add_axes([0.9, 0.1, 0.03, 0.8]) # xmin, ymin, dx, dy
+    # fig.colorbar(im, cax=cax)
+    
+    plt.tight_layout()
+    pp = PdfPages("test_heatmap_vertical.pdf")
+    pp.savefig(fig, bbox_inches='tight')
+    pp.close()
+
+
 def test_colorbar():
     # Builtin colourmap "seismic" has the blue-white-red
     #   scale you want
