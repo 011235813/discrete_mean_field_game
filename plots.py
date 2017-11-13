@@ -9,7 +9,7 @@ import pandas as pd
 
 
 #plt.rcParams.update({'font.size': 12})
-def plot_barchart(filename='chart_mfg_t8p06_s0p16_alpha12000_var_lag13_rnn.pdf', num_days=6):
+def plot_barchart(filename='chart_mfg_t8p06_s0p16_alpha12000_var_lag13_rnn.pdf', num_days=6, c1='b', c2='#e69900', c3='m'):
     N = 2
     mfg = (0.00299, 0.00485) # previous: (0.0028, 0.0045)
     mfg_std = (0.000671, 0.00123) # previous: (0.0014, 0.0018)
@@ -18,17 +18,17 @@ def plot_barchart(filename='chart_mfg_t8p06_s0p16_alpha12000_var_lag13_rnn.pdf',
     width = 0.15       # the width of the bars
     
     fig, ax = plt.subplots()
-    rects1 = ax.bar(ind, mfg, width, color='b', yerr=mfg_std)
+    rects1 = ax.bar(ind, mfg, width, color=c1, yerr=mfg_std)
     
     ax.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
     
     var = (0.00704, 0.00805) # previous: (0.00359, 0.00456)
     var_std = (0.00117, 0.001) # previous: (0.00101, 0.00104)
-    rects2 = ax.bar(ind + width, var, width, color='r', yerr=var_std)
+    rects2 = ax.bar(ind + width, var, width, color=c2, yerr=var_std)
     
     rnn = (0.580, 0.567) # previous (0.613, 0.595)
     rnn_std = (0.007, 0.01) # previous ( 0.007, 0.008)
-    rects3 = ax.bar(ind + 2*width, rnn, width, color='m', yerr=rnn_std)
+    rects3 = ax.bar(ind + 2*width, rnn, width, color=c3, yerr=rnn_std)
     
     start, end = ax.get_ylim()
     step = (end-start)/5
@@ -225,6 +225,53 @@ def test_heatmap():
     pp = PdfPages("test_heatmap.pdf")
     pp.savefig(fig, bbox_inches='tight')
     pp.close()
+
+
+def test_heatmap_1x3():
+    # Generate some data that where each slice has a different range
+    # (The overall range is from 0 to 2)
+    arr1 = np.random.random((15,15))
+    arr2 = np.random.random((15,15))
+    arr3 = np.random.random((15,15))    
+    
+    # Plot each slice as an independent subplot
+    fig, axes = plt.subplots(nrows=1, ncols=3)
+    # for dat, ax in zip(data, axes.flat):
+    #     # The vmin and vmax arguments specify the color limits
+    #     im = ax.imshow(dat, cmap='hot', vmin=0, vmax=1)
+    ax1 = axes[0]
+    im = ax1.imshow(arr1, cmap='hot', vmin=0, vmax=1)
+    ax1.set_title('hello')
+    major_ticks = np.arange(0, 15, 3)                                         
+    ax1.set_xticks(major_ticks)
+    ax1.set_yticks(major_ticks)
+
+    ax2 = axes[1]
+    im = ax2.imshow(arr2, cmap='hot', vmin=0, vmax=1)
+    ax2.set_title('bye')
+    major_ticks = np.arange(0, 15, 3)                                         
+    ax2.set_xticks(major_ticks)           
+    ax2.set_yticks(major_ticks)
+
+    ax3 = axes[2]
+    im = ax3.imshow(arr3, cmap='hot', vmin=0, vmax=1)
+    ax3.set_title('bye')
+    major_ticks = np.arange(0, 15, 3)                                         
+    ax3.set_xticks(major_ticks)           
+    ax3.set_yticks(major_ticks)    
+
+    fig.subplots_adjust(right=0.8)
+    cbar_ax = fig.add_axes([0.85, 0.3, 0.03, 0.3])
+    fig.colorbar(im, cax=cbar_ax)
+    
+    # Make an axis for the colorbar on the right side
+    # cax = fig.add_axes([0.9, 0.1, 0.03, 0.8]) # xmin, ymin, dx, dy
+    # fig.colorbar(im, cax=cax)
+    
+    plt.tight_layout()
+    pp = PdfPages("test_heatmap.pdf")
+    pp.savefig(fig, bbox_inches='tight')
+    pp.close()    
 
 
 def test_heatmap_vertical(shift, x, y):

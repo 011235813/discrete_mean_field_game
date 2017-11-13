@@ -35,6 +35,10 @@ class actor_critic:
         # number of topics
         self.d = d
 
+        # initialize collection of start states
+        self.init_pi0(path_to_dir=os.getcwd()+'/train_normalized_round2')
+        self.num_start_samples = self.mat_pi0.shape[0] # number of rows
+
         # d x d x dim_theta tensor, computed within sample_action and used for
         # calculating gradient for theta update
         # self.tensor_phi = np.zeros([self.d, self.d, self.dim_theta])        #here
@@ -185,7 +189,7 @@ class actor_critic:
         num_files = len(os.listdir(path_to_dir))
 
         for num_day in range(1, 1+num_files):
-            filename = "trend_distribution_day%d_reordered.csv" % num_day
+            filename = "trend_distribution_day%d.csv" % num_day
             path_to_file = path_to_dir + '/' + filename
             f = open(path_to_file, 'r')
             list_lines = f.readlines()
@@ -452,11 +456,6 @@ class actor_critic:
 
         Main actor-critic training procedure that improves theta and w
         """
-
-        # initialize collection of start states
-        self.init_pi0(path_to_dir=os.getcwd()+'/train_normalized')
-        self.num_start_samples = self.mat_pi0.shape[0] # number of rows
-
         list_reward = []
         for episode in range(num_episodes):
             # print("Episode", episode)
@@ -593,7 +592,7 @@ class actor_critic:
         return mat_trajectory
 
 
-    def evaluate(self, theta=8.86349, shift=0.5, alpha_scale=1e4, d=21, episode_length=16, indir='test_normalized', outfile='test_eval.csv', write_header=0):
+    def evaluate(self, theta=8.86349, shift=0.5, alpha_scale=1e4, d=21, episode_length=16, indir='test_normalized_round2', outfile='eval_mfg_round2/test_eval_fixed_reward.csv', write_header=0):
         """
         Main evaluation function
 
@@ -761,7 +760,7 @@ class actor_critic:
         self.df_rnn = df
 
         
-    def visualize_test(self, theta=9.99, d=21, topic=0, dir_train='train_normalized2', train_start=1, train_end=35, dir_test='test_normalized2', test_start=36, test_end=45, mfg_and_rnn=0, log_scale=0,  save_plot=0, outfile='plots/mfg_var_0_9p99_0p02_2e4_22_m5d15.pdf'):
+    def visualize_test(self, lag=18, theta=9.96, d=15, topic=0, dir_train='train_normalized_round2', train_start=1, train_end=21, dir_test='test_normalized_round2', test_start=22, test_end=27, mfg_and_rnn=0, log_scale=0,  save_plot=1, outfile='plots_irl/mfg_var_0_9p99_0p02_2e4_22_m5d15.pdf'):
         """
         Produce plot of trajectory of raw test data, 
         MFG generated data, and time series prediction (from var.py)
@@ -790,7 +789,7 @@ class actor_critic:
 
         # Train VAR and get forecast
         print("Running VAR to get forecast")
-        self.var.train(22, self.var.df_train)
+        self.var.train(lag, self.var.df_train)
         df_future_var = self.var.forecast(num_prior=int(16*(train_end-train_start+1)), steps=int(16*(test_end-test_start+1)), topic=topic, plot=0, show_plot=0)
 
         # Get RNN predictions
