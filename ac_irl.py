@@ -30,7 +30,7 @@ import networks
 
 class AC_IRL:
 
-    def __init__(self, theta=8.86349, shift=0.16, alpha_scale=12000, d=15, lr_reward=1e-4, num_policies=10, c=2e11, reg='dropout_l1l2', n_fc3=8, n_fc4=4, saved_network=None, use_tf=True, summarize=False):
+    def __init__(self, theta=8.64, shift=0, alpha_scale=1e4, d=15, lr_reward=1e-4, num_policies=10, c=2e11, reg='dropout_l1l2', n_fc3=8, n_fc4=4, saved_network=None, use_tf=True, summarize=False):
         """
         reg - 'none', 'dropout', 'l1l2', 'dropout_l1l2'
         use_tf - if True, create tensorflow graphs as usual, else do not instantiate graph
@@ -64,6 +64,9 @@ class AC_IRL:
         # initialize collection of start states
         self.init_pi0(path_to_dir=os.getcwd()+'/train_normalized_round2')
         self.num_start_samples = self.mat_pi0.shape[0] # number of rows
+        # initialize collection of start states of test set
+        self.init_pi0_test(path_to_dir=os.getcwd()+'/test_normalized_round2', day_start=22)
+        self.num_start_samples_test = self.mat_pi0_test.shape[0]
 
         # Will become list of list of tuples of the form (state, action)
         self.list_demonstrations = self.read_demonstrations(state_dir='./train_normalized_round2', action_dir='./actions_2', dim_action=20, start_day=1)
@@ -468,6 +471,39 @@ class AC_IRL:
         self.mat_pi0 = np.zeros([num_rows, num_cols])
         for i in range(len(list_pi0)):
             self.mat_pi0[i] = list_pi0[i]
+
+
+    def init_pi0_test(self, path_to_dir, day_start=22, verbose=0):
+        """
+        Generates the collection of initial population distributions.
+        This collection will be sampled to get the start state for each training episode
+        Assumes that each file in directory has rows of the format:
+        pi^0_1 pi^0_2 ... pi^0_d
+        ...
+        pi^d_1 pi^d_2 ... pi^d_d
+        where d is a fixed constant across all files
+        """
+        # will be list of lists
+        list_pi0 = []
+        num_files = len(os.listdir(path_to_dir))
+
+        for num_day in range(day_start, day_start+num_files):
+            filename = "trend_distribution_day%d.csv" % num_day
+            path_to_file = path_to_dir + '/' + filename
+            with open(path_to_file, 'r') as f:
+                list_lines = f.readlines()
+            # Take first line, split by ' ', map to float, convert to list and append to list_pi0
+            list_pi0.append( list(map(float, list_lines[0].strip().split(' ')))[0:self.d] )
+            if verbose:
+                print(filename)
+            
+        num_rows = len(list_pi0)
+        num_cols = len(list_pi0[0])
+
+        # Convert to np matrix
+        self.mat_pi0_test = np.zeros([num_rows, num_cols])
+        for i in range(len(list_pi0)):
+            self.mat_pi0_test[i] = list_pi0[i]            
         
 
     def sample_action(self, pi):
@@ -696,10 +732,11 @@ class AC_IRL:
         print("----- Exiting train at episode %d with theta %f -----" % (episode, self.theta))
 
 
-    def generate_trajectories(self, n):
+    def generate_trajectories(self, n, from_test=False):
         """
         Use the current policy self.theta to generate trajectories
         n - number of trajectories to generate
+        from_test - if True, use initial state of test set to generate trajectories from policy
 
         Return: list of generated trajectories
         """
@@ -711,8 +748,12 @@ class AC_IRL:
         for idx_traj in range(n):
             trajectory = []
             # Sample start state
-            idx_row = np.random.randint(self.num_start_samples)
-            pi = self.mat_pi0[idx_row, :] # row vector
+            if from_test:
+                idx_row = np.random.randint(self.num_start_samples_test)
+                pi = self.mat_pi0_test[idx_row, :] # row vector
+            else: # from train
+                idx_row = np.random.randint(self.num_start_samples)
+                pi = self.mat_pi0[idx_row, :] # row vector
 
             # Generate trajectory, i.e. a list of state-action pairs
             hour = 1
@@ -1002,12 +1043,12 @@ class AC_IRL:
         return reward_demo_avg_train, reward_demo_avg_test, reward_gen_avg
 
 
-    def plot_reward_distribution(self, theta_good=8.06, xmin=-0.1, xmax=0.4, filename='reward_distribution.pdf'):
+    def plot_reward_distribution(self, theta_good=8.64, xmin=-0.1, xmax=0.4, legend_loc=0, gen_test=False, num_bins=20, filename='reward_distribution.pdf'):
         """
         Generate three histograms
         1. distribution of reward for demo transitions
         2. distribution of reward for demo test transitions
-        2. distribution of reward for good generated transitions
+        3. distribution of reward for good generated transitions
 
         theta_good - learned theta for generating good transitions
         xmin, xmax, ymin, ymax - axis boundaries
@@ -1025,14 +1066,21 @@ class AC_IRL:
         feed_dict = {self.demo_states:demo_test_states, self.demo_actions:demo_test_actions}
         reward_demo_test_val = self.sess.run(self.reward_demo, feed_dict=feed_dict)
 
-        # Generate list of trajectories using good policy
+        # Generate list of trajectories using policy from initial state of training demo
         num_demos = len(self.list_demonstrations)
         self.theta = theta_good
         list_generated_good = self.generate_trajectories(num_demos)
         gen_states = [pair[0] for traj in list_generated_good for pair in traj]
         gen_actions = [pair[1] for traj in list_generated_good for pair in traj]
         feed_dict = {self.gen_states:gen_states, self.gen_actions:gen_actions}
-        reward_gen_good = self.sess.run(self.reward_gen, feed_dict=feed_dict)
+        reward_gen_from_train = self.sess.run(self.reward_gen, feed_dict=feed_dict)
+
+        # Generate list of trajectories using policy from initial state of test demo
+        list_generated_from_test = self.generate_trajectories(num_demos, from_test=True)
+        gen_states = [pair[0] for traj in list_generated_from_test for pair in traj]
+        gen_actions = [pair[1] for traj in list_generated_from_test for pair in traj]
+        feed_dict = {self.gen_states:gen_states, self.gen_actions:gen_actions}
+        reward_gen_from_test = self.sess.run(self.reward_gen, feed_dict=feed_dict)        
 
         fig = plt.figure(1)
 
@@ -1045,14 +1093,17 @@ class AC_IRL:
         density_demo_test = gaussian_kde(reward_demo_test_val.flatten())
         plt.plot(xs, density_demo_test(xs), label='Demo (test)', color='r')
 
-        density_gen = gaussian_kde(reward_gen_good.flatten())
-        plt.plot(xs, density_gen(xs), label='Generated', color='b')        
+        density_gen = gaussian_kde(reward_gen_from_train.flatten())
+        plt.plot(xs, density_gen(xs), label='Generated (from train)', color='b')
+
+        density_gen_from_test = gaussian_kde(reward_gen_from_test.flatten())
+        plt.plot(xs, density_gen_from_test(xs), label='Generated (from test)', color='k')
 
         plt.ylabel('Density')
         plt.xlabel('Reward')
         # plt.axis([xmin, xmax, ymin, ymax1])
         plt.title('Distribution of reward for demo and generated transitions')
-        plt.legend(loc='best', fontsize=14)        
+        plt.legend(loc=legend_loc, fontsize=12)        
         axes = plt.gca()
         for item in ([axes.title, axes.yaxis.label, axes.xaxis.label]):
             item.set_fontsize(14)
@@ -1062,12 +1113,83 @@ class AC_IRL:
         pp.savefig(fig, bbox_inches='tight')
         pp.close()
 
-        dist_demo, _, _ = plt.hist(reward_demo_val, bins=30, normed=0, facecolor='g')
-        dist_demo_test, _, _ = plt.hist(reward_demo_test_val, bins=30, normed=0, facecolor='r')
-        dist_gen, _, _ = plt.hist(reward_gen_good, bins=30, normed=0, facecolor='b')
+        dist_demo_train, _, _ = plt.hist(reward_demo_val, bins=num_bins, normed=0, facecolor='g')
+        dist_demo_test, _, _ = plt.hist(reward_demo_test_val, bins=num_bins, normed=0, facecolor='r')
+        dist_gen_from_train, _, _ = plt.hist(reward_gen_from_train, bins=num_bins, normed=0, facecolor='b')
+        dist_gen_from_test, _, _ = plt.hist(reward_gen_from_test, bins=num_bins, normed=0, facecolor='k')        
 
-        print("JSD between demo and demo_test", self.JSD(dist_demo, dist_demo_test))
+        print("JSD between demo train and demo_test", self.JSD(dist_demo_train, dist_demo_test))
+        print("JSD between demo and gen_from_train", self.JSD(dist_demo_train, dist_gen_from_train))
+        print("JSD between demo and gen_from_test", self.JSD(dist_demo_test, dist_gen_from_test))
+
+
+    def plot_reward_distribution_pairs(self, theta_good=8.64, xmin=-0.1, xmax=0.4, legend_loc=0, train=True, num_bins=20, filename='reward_distribution.pdf'):
+        """
+        Generate interpolated density plot of either (demo train, gen from train)
+        or (demo test, gen from test)
+
+        theta_good - learned theta for generating good transitions
+        xmin, xmax, ymin, ymax - axis boundaries
+        """
+        self.theta = theta_good
+        if train:
+            # Get rewards on training demo transitions
+            demo_states = [pair[0] for traj in self.list_demonstrations for pair in traj]
+            demo_actions = [pair[1] for traj in self.list_demonstrations for pair in traj]
+            num_demos = len(self.list_demonstrations)
+            list_generated = self.generate_trajectories(num_demos, from_test=False)
+        else:
+            # Rewards on test demo transitions
+            demo_states = [pair[0] for traj in self.list_demonstrations_test for pair in traj]
+            demo_actions = [pair[1] for traj in self.list_demonstrations_test for pair in traj]
+            num_demos = len(self.list_demonstrations_test)
+            list_generated = self.generate_trajectories(num_demos, from_test=True)
+        
+        gen_states = [pair[0] for traj in list_generated for pair in traj]
+        gen_actions = [pair[1] for traj in list_generated for pair in traj]
+            
+        feed_dict = {self.demo_states:demo_states, self.demo_actions:demo_actions}
+        reward_demo_val = self.sess.run(self.reward_demo, feed_dict=feed_dict)
+
+        feed_dict = {self.gen_states:gen_states, self.gen_actions:gen_actions}
+        reward_gen_val = self.sess.run(self.reward_gen, feed_dict=feed_dict)
+
+        fig = plt.figure(1)
+
+        density_demo = gaussian_kde(reward_demo_val.flatten())
+        xs = np.linspace(xmin, xmax, 200)
+        # density_demo.covariance_factor = lambda : .25
+        # density_demo._compute_covariance()
+        if train:
+            plt.plot(xs, density_demo(xs), linewidth=2, label='Demo (train)', color='g')
+        else:
+            plt.plot(xs, density_demo(xs), linewidth=2, label='Demo (test)', color='g')
+
+        density_gen = gaussian_kde(reward_gen_val.flatten())
+        plt.plot(xs, density_gen(xs), linewidth=2, label='Generated', color='b')
+
+        plt.ylabel('Density')
+        plt.xlabel('Reward')
+        # plt.axis([xmin, xmax, ymin, ymax1])
+        if train:
+            plt.title('Reward density for training demo and generated transitions')
+        else:
+            plt.title('Reward density for test demo and generated transitions')
+        plt.legend(loc=legend_loc, fontsize=12)
+        axes = plt.gca()
+        for item in ([axes.title, axes.yaxis.label, axes.xaxis.label]):
+            item.set_fontsize(14)
+
+        plt.tight_layout()
+        pp = PdfPages('plots_irl/'+filename)
+        pp.savefig(fig, bbox_inches='tight')
+        pp.close()
+
+        dist_demo, _, _ = plt.hist(reward_demo_val, bins=num_bins, normed=0, facecolor='g')
+        dist_gen, _, _ = plt.hist(reward_gen_val, bins=num_bins, normed=0, facecolor='b')
+
         print("JSD between demo and gen", self.JSD(dist_demo, dist_gen))
+        plt.gcf().clear()
 
 
     def plot_reward_histogram(self, theta_good=8.06, xmin=-0.1, xmax=0.4, ymin=0, ymax1=50, ymax2=25, ymax3=50, x_text=0.2, y_text1=35, y_text2=20, y_text3=35, filename='reward_histogram.pdf'):
@@ -1141,7 +1263,7 @@ class AC_IRL:
         print("JSD between demo and gen", self.JSD(dist_demo, dist_gen))        
 
 
-    def plot_action_heatmap(self, theta_good, filename='action_heatmap.pdf'):
+    def plot_action_heatmap(self, theta_good=8.64, shift=0.7, x=0.9, y=0.4, dx=0.03, dy=0.35, filename='action_heatmap.pdf'):
         """
         Does not require reward network. Generate three heatmaps:
         1. distribution of averaged demo actions
@@ -1166,7 +1288,7 @@ class AC_IRL:
 
         diff = np.abs(demo_avg - gen_good_avg)
 
-        fig, axes = plt.subplots(nrows=1, ncols=2)
+        fig, axes = plt.subplots(nrows=1, ncols=3)
 
         ax0 = axes[0]
         im = ax0.imshow(demo_avg, cmap='hot', vmin=0, vmax=1)
@@ -1177,19 +1299,28 @@ class AC_IRL:
         ax0.set_yticks(major_ticks)
 
         ax1 =  axes[1]
-        im = ax1.imshow(diff, cmap='hot', vmin=0, vmax=1)
-        ax1.set_title('Difference')
+        im = ax1.imshow(gen_good_avg, cmap='hot', vmin=0, vmax=1)
+        ax1.set_title('Generated actions')
         ax1.title.set_fontsize(14)
         ax1.set_xticks(major_ticks)
-        ax1.set_yticks(major_ticks)        
+        ax1.set_yticks(major_ticks)
 
-        fig.subplots_adjust(right=0.8)
-        cbar_ax = fig.add_axes([0.85, 0.3, 0.05, 0.4])
+        ax2 =  axes[2]
+        im = ax2.imshow(diff, cmap='hot', vmin=0, vmax=1)
+        ax2.set_title('Difference')
+        ax2.title.set_fontsize(14)
+        ax2.set_xticks(major_ticks)
+        ax2.set_yticks(major_ticks)        
+
+        fig.subplots_adjust(right=shift)
+        cbar_ax = fig.add_axes([x, y, dx, dy])
         fig.colorbar(im, cax=cbar_ax)
         
         pp = PdfPages('plots_irl/'+filename)
         pp.savefig(fig, bbox_inches='tight')
         pp.close()
+
+        plt.gcf().clear()
 
 
     def plot_action_heatmap_vertical(self, theta_good=8.64, shift=0.5, x=0.68, y=0.1, dx=0.05, dy=0.8, filename='action_heatmap_vertical.pdf'):
@@ -1269,7 +1400,7 @@ class AC_IRL:
         state3 = np.ones(self.d, dtype=np.float32) / self.d
 
         # people in topic i only move to topic j that has higher popularity
-        self.theta = 8.06
+        self.theta = 8.64 # prev 8.06
         action1 = self.sample_action(state2)
 
         # people in all topics move equally to all topics
@@ -1296,8 +1427,8 @@ class AC_IRL:
         major_ticks = np.arange(0, 3, 1) 
         ax.set_xticks(major_ticks)
         ax.set_yticks(major_ticks)
-        ax.set_xlabel('Actions')
-        ax.set_ylabel('States')
+        ax.set_xlabel('Actions (A)')
+        ax.set_ylabel('States (S)')
         for item in ([ax.yaxis.label, ax.xaxis.label, ax.title]):
             item.set_fontsize(14)
 
@@ -1529,10 +1660,12 @@ class AC_IRL:
         self.df_rnn = df
 
         
-    def visualize_test(self, lag=13, theta=9.99, d=21, topic=0, dir_train='train_normalized_round2', train_start=1, train_end=21, dir_test='test_normalized_round2', test_start=22, test_end=27, mfg_and_rnn=0, path_to_rnn='rnn_normalized_round2/trajectories.txt', log_scale=0,  save_plot=0, outfile='traj_mfg_var_0_8p06_0p16_12e3_13_m10d18.pdf'):
+    def visualize_test(self, lag=18, theta=8.64, d=15, topic=0, dir_train='train_normalized_round2', train_start=1, train_end=21, dir_test='test_normalized_round2', test_start=22, test_end=27, choice=2, path_to_rnn='rnn_normalized_round2/trajectories.txt', log_scale=0,  c1='g', c2='b', c3='m', save_plot=1, outfile='traj_mfg_var_0_8p06_0p16_12e3_13_m10d18.pdf'):
         """
         Produce plot of trajectory of raw test data, 
         MFG generated data, and time series prediction (from var.py)
+
+        choice - 0 (MFG and VAR), 1 (MFG and RNN), 2 (all three)
         """
         self.theta = theta
         self.d = d
@@ -1572,16 +1705,21 @@ class AC_IRL:
         for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] + ax.get_xticklabels() + ax.get_yticklabels()):
             item.set_fontsize(14)
             
-        if mfg_and_rnn == 0:
+        if choice == 0:
             plt.plot(array_x_test, df_test[topic], color='k', linestyle='-', label='test data')
-            plt.plot(array_x_test, self.df_test_generated[topic], color='g', linestyle='--', label='MFG (test)')
-            plt.plot(array_x_test, df_future_var[topic], color='b', linestyle=':', label="VAR (test)")
-        else:
+            plt.plot(array_x_test, self.df_test_generated[topic], color=c1, linestyle='--', label='MFG (test)')
+            plt.plot(array_x_test, df_future_var[topic], color=c2, linestyle='--', label="VAR (test)")
+        elif choice == 1:
             plt.plot(array_x_test, df_test[topic], color='k', linestyle='-', label='test data')
             plt.plot(array_x_test, self.df_test_generated[topic], color='g', linestyle='--', label='MFG (test)')
             plt.plot(array_x_test, self.df_rnn[topic], color='m', linestyle='-.', label='RNN (test)')
             if log_scale:
                 ax.set_yscale('log')
+        elif choice == 2:
+            plt.plot(array_x_test, df_test[topic], color='k', linestyle='-', label='test data')
+            plt.plot(array_x_test, self.df_test_generated[topic], color=c1, linestyle='--', label='MFG (test)')
+            plt.plot(array_x_test, df_future_var[topic], color=c2, linestyle='--', label="VAR (test)")
+            plt.plot(array_x_test, self.df_rnn[topic], color=c3, linestyle='--', label='RNN (test)')
         plt.ylabel('Topic %d popularity' % topic)
         plt.xlabel('Day')
         plt.xticks(np.arange(0,(test_end-test_start+1)+1,1))
@@ -1594,7 +1732,7 @@ class AC_IRL:
             pp.close()
         else:
             plt.show()
-
+        plt.gcf().clear()
         
 
 if __name__ == "__main__":
