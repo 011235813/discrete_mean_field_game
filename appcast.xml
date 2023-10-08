@@ -1,14 +1,14 @@
 <?xml version="1.0" standalone="yes"?>
 <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
-        <title>Sparklet-test</title>
+        <title>MageSimular</title>
         <item>
-            <title>1.0</title>
-            <pubDate>Sun, 08 Oct 2023 14:07:19 -0700</pubDate>
-            <sparkle:version>1</sparkle:version>
-            <sparkle:shortVersionString>1.0</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>13.6</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/011235813/discrete_mean_field_game/releases/download/v1.0/Sparklet-test.dmg" length="857086" type="application/octet-stream" sparkle:edSignature="Vqvz/2VoA3CIpViYTjMVheBhP8O88t5T2HEe4x3GxEANScNj6EC5Vwy9bRPwH3NtQ71Up/RTQ4yzZzNLXqnCCQ=="/>
+            <title>1.1</title>
+            <pubDate>Sun, 08 Oct 2023 15:20:02 -0700</pubDate>
+            <sparkle:version>0.1</sparkle:version>
+            <sparkle:shortVersionString>1.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>11.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/011235813/discrete_mean_field_game/releases/download/v1.0/Simular1.1.dmg" length="2824575" type="application/octet-stream" sparkle:edSignature="M1MU3MSDW25l6jD1yLrhmVTNx04wT3aZ3OF8lpt1in/j+c4USQgvmXStqB/21oY8GMw71VHAmO5UA3uJZ6LxBQ=="/>
         </item>
     </channel>
 </rss>
